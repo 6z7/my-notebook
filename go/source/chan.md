@@ -37,6 +37,8 @@
         0x0040 00064 (demo2.go:9)	RET
         0x0041 00065 (demo2.go:9)	NOP
 
+chan的源码位于runtime/chan.go文件中
+
 ## chan在运行时的结构
 
     //chan结构
@@ -65,7 +67,9 @@
         lock mutex
     }
 
-## runtime.chanrecv1 ##
+## runtime.chanrecv1
+
+接收消息
 
     // 接收消息保存到ep
     //ep:保存接收的数据,为nil的话将忽略接收数据
@@ -232,3 +236,203 @@
         //唤醒发送者g
         goready(gp, skip+1)
     }
+
+
+## runtime.chansend1
+
+发送消息
+
+    func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
+        //var a chan int
+        // nil chan
+        if c == nil {
+            if !block {
+                return false
+            }
+            //挂起
+            gopark(nil, nil, waitReasonChanSendNilChan, traceEvGoStop, 2)
+            throw("unreachable")
+        }
+
+        // 非阻塞&&chan未关闭&&(没有缓冲&&没有接收者在等待||有缓冲&&缓冲已满)
+        // 满足已上条件 直接返回
+        if !block && c.closed == 0 && ((c.dataqsiz == 0 && c.recvq.first == nil) ||
+            (c.dataqsiz > 0 && c.qcount == c.dataqsiz)) {
+            return false
+        }
+
+        lock(&c.lock)
+
+        //chan已经关闭则panic
+        if c.closed != 0 {
+            unlock(&c.lock)
+            panic(plainError("send on closed channel"))
+        }
+
+        //如果有接收者在等待,直接将ep赋值到对应的接收者的ep
+        if sg := c.recvq.dequeue(); sg != nil {      
+            send(c, sg, ep, func() { unlock(&c.lock) }, 3)
+            return true
+        }
+
+        //缓冲没有满
+        if c.qcount < c.dataqsiz {
+            // Space is available in the channel buffer. Enqueue the element to send.
+            qp := chanbuf(c, c.sendx)
+            if raceenabled {
+                raceacquire(qp)
+                racerelease(qp)
+            }
+            //将发送数据ep保存到缓冲中
+            typedmemmove(c.elemtype, qp, ep)
+            c.sendx++
+            //缓冲满了即c.qcount = c.dataqsiz
+            if c.sendx == c.dataqsiz {
+                c.sendx = 0
+            }
+            //缓冲中数量+1
+            c.qcount++
+            unlock(&c.lock)
+            return true
+        }
+
+        //缓冲已满 非阻塞则直接返回，否则挂起当前g
+        if !block {
+            unlock(&c.lock)
+            return false
+        }
+
+        // Block on the channel. Some receiver will complete our operation for us.
+        gp := getg()
+        mysg := acquireSudog()
+        mysg.releasetime = 0
+        if t0 != 0 {
+            mysg.releasetime = -1
+        }       
+        //保存发送者的要发送数据指针
+        mysg.elem = ep
+        mysg.waitlink = nil
+        mysg.g = gp
+        mysg.isSelect = false
+        mysg.c = c
+        gp.waiting = mysg
+        //param=nil 代表chan已关闭
+        gp.param = nil
+        //发送者入队
+        c.sendq.enqueue(mysg)
+        //挂起当前发送者
+        goparkunlock(&c.lock, waitReasonChanSend, traceEvGoBlockSend, 3)
+        
+        KeepAlive(ep)
+
+        // someone woke us up.
+        if mysg != gp.waiting {
+            throw("G waiting list is corrupted")
+        }
+        gp.waiting = nil
+        //唤醒后检查chan是否已经被关闭,close时会清空该标志
+        //所以关闭时如果有发送者被挂起close后唤醒时会触发panic
+        if gp.param == nil {
+            if c.closed == 0 {
+                throw("chansend: spurious wakeup")
+            }
+            panic(plainError("send on closed channel"))
+        }
+        gp.param = nil       
+        mysg.c = nil
+        releaseSudog(mysg)
+        return true
+    }
+
+    //直接将发送者数据赋值给挂起的接收者
+    func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {       
+        //elem是接收者保存接收值的指针,close时会清空elem
+        if sg.elem != nil {
+            //直接copy到接收者(sg.elem中保存的是接收者)
+            sendDirect(c.elemtype, sg, ep)
+            sg.elem = nil
+        }
+        gp := sg.g
+        unlockf()
+        //param=nil代表g被唤醒后chan已经被关闭,所以此处需要赋值
+        gp.param = unsafe.Pointer(sg)
+        if sg.releasetime != 0 {
+            sg.releasetime = cputicks()
+        }
+        goready(gp, skip+1)
+    }
+
+## runtime.closechan
+
+关闭chan
+
+    func closechan(c *hchan) {
+        //已关闭
+        if c == nil {
+            panic(plainError("close of nil channel"))
+        }
+
+        lock(&c.lock)
+        //已关闭
+        if c.closed != 0 {
+            unlock(&c.lock)
+            panic(plainError("close of closed channel"))
+        }
+
+        c.closed = 1
+
+        var glist gList
+
+        // release all readers
+        for {
+            sg := c.recvq.dequeue()
+            if sg == nil {
+                break
+            }
+            //设置接收数据的指针nil
+            if sg.elem != nil {
+                typedmemclr(c.elemtype, sg.elem)
+                sg.elem = nil
+            }
+            if sg.releasetime != 0 {
+                sg.releasetime = cputicks()
+            }
+            gp := sg.g
+            //chan close标志,用与唤醒后让g感知到
+            gp.param = nil
+            if raceenabled {
+                raceacquireg(gp, c.raceaddr())
+            }
+            glist.push(gp)
+        }
+
+        // release all writers (they will panic)
+        for {
+            sg := c.sendq.dequeue()
+            if sg == nil {
+                break
+            }
+            //设置发送数据的指针nil
+            sg.elem = nil
+            if sg.releasetime != 0 {
+                sg.releasetime = cputicks()
+            }
+            gp := sg.g
+            //chan close标志,用与唤醒后让g感知到
+            gp.param = nil
+            if raceenabled {
+                raceacquireg(gp, c.raceaddr())
+            }
+            glist.push(gp)
+        }
+        unlock(&c.lock)
+
+        // Ready all Gs now that we've dropped the channel lock.
+        for !glist.empty() {
+            gp := glist.pop()
+            gp.schedlink = 0
+            //唤醒所有挂起的发送者与接收者
+            goready(gp, 3)
+        }
+    }
+
