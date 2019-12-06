@@ -5,4 +5,4 @@ Go源码阅读
 
 * [defer](./defer.md)
 
-* chann
+* chan
