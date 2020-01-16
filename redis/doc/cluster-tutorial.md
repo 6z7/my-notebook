@@ -105,8 +105,90 @@
 &emsp;&emsp;我们将部署一个集群事例。在这之前先了解下redis.conf文件中关于集群的相关配置。
 
 * cluster-enabled \<yes/no> 是否开启Redis集群功能
+
 * cluster-config-file \<filename> 节点的配置文件，这个不需要用户编辑，记录一些集群的配置，方便节点重启时使用，当集群的信息发生变换时会刷新到该文件
-* cluster-node-timeout \<milliseconds>
+
+* cluster-node-timeout \<milliseconds> 在被标记为fail之前最大可以持续的不可用时间
+
+* cluster-slave-validity-factor \<factor> 如果设置为0，则不管主从断开多久，从节点总是试图对master进行failover。如果是一个大于0的值则允许的主从最大断开时间为cluster-node-timeout+cluster-slave-validity-factor，如果主从断开超过这个阈值则从节点不会对master进行failover。如果master发生故障时没有从节点进行failover，则集群将不可用。
+
+* cluster-migration-barrier \<count> 将master的从节点漂移到其它master时，当前master需要保留的最少从节点数量。
+
+* cluster-require-full-coverage \<yes/no> 如果设置为yes,它也是默认值，如果部分key所在的节点不可用时整个集群将停止工作，反之slot还能继续提供服务。
+
+* cluster-allow-reads-when-down \<yes/no> 如果设置为no,它也是默认值，当集群被标记为fail时集群将停止服务，反之将允许读。
+
+## 搭建一个Redis集群
+
+下面是搭建集群的最小配置
+
+    port 7000
+    cluster-enabled yes
+    cluster-config-file nodes.conf
+    cluster-node-timeout 5000
+    appendonly yes
+
+搭建集群最少需要3个master节点，对于当一次搭建建议启动6个节点3个master3个salve。
+
+就这样做，我们先进入一个新目录，创建如下的目录，目录名为节点端口号。
+
+    mkdir cluster-test
+    cd cluster-test
+    mkdir 7000 7001 7002 7003 7004 7005
+
+
+在每个目录下创建redis.conf文件，按照上边提到的最小配置进行配置，注意端口要进行相应修改。在每个目录下执行类似下边的操作启动redis:
+
+    cd 7000
+    ../redis-server ./redis.conf
+
+启动后将看到如下日志
+
+    [82462] 26 Nov 11:56:55.329 * No cluster configuration found, I'm 97a3a64667477371c4479320d683e4c8db5858b1
+
+这个ID将作为该reids实例在集群中的唯一名称，集群中的每个节点通过这个ID记住对方而不是通过ip或端口，ip和端口可能改变，但是节点的声明周期中这个ID不会改变，我们称之为Node ID。
+
+### 创建一个集群
+
+&emsp;&emsp;现在我们已经运行起来了几个redis实例，我们还需要向redis实例写入一些配置来创建一个集群出来。
+
+&emsp;&emsp;如果你使用的是Redis 5，那么通过redis-cli中内置的集群帮助工具很容易实现，通过这个工具可以实现创建一个集群，对存在的集群进行检测或重新分片等操作。
+
+&emsp;&emsp;对Redis 3或4，有个类似的工具叫redis-trib.rb。你可以在源码目录里找到，运行之前需要先安装redis gem
+
+    gem install redis
+
+
+&emsp;&emsp;第一个例子我将使用redis-cli和redis-trib创建集群。之后的例子将只使用redis-cli。需要注意的是完全可以使用Redis5的redis-cli工具操作Redis4集群。
+
+使用Redis5的redis-cli创建集群:
+
+    redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 \
+    127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+    --cluster-replicas 1
+
+使用redis-trib.rb创建集群:
+
+    ./redis-trib.rb create --replicas 1 127.0.0.1:7000 127.0.0.1:7001 \
+    127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+
+create命令意味着是创建一个新的集群，--cluster-replicas 1选项代表每个master创建一个slave，其它参数是用于创建集群的redis地址
+
+显然上边的操作是创建了一个3主3从的集群
+
+Redis-cli将会给出一个建议配置，输入yes代表接受，之后集群将会被配置和连接，相互之间会进行通信。最后如果一切顺利将看到如下输出:
+
+    [OK] All 16384 slots covered
+
+### 使用create-cluster脚本创建集群
+
+&emsp;&emsp;如果你不想向上边一样通过手动配置和运行各个实例来创建集群，还有一种更简单的方式。
+
+在源码的utils/create-cluster目录中有一个脚本
+
+
+
+
 
 
 
