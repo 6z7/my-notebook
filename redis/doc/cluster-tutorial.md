@@ -240,7 +240,7 @@ redis-cli需要知道resharding的目标，这里使用第一个master节点，�
 
     redis-cli --cluster check 127.0.0.1:7000
 
-### 脚步化重新分片操作
+### 脚本化重新分片操作
 
 &emsp;&emsp;resharding可以自动化进行，不用手动交互在命令行中输入参数。使用像下面的命令:
 
@@ -250,24 +250,172 @@ redis-cli需要知道resharding的目标，这里使用第一个master节点，�
 
 ### 更多有意思的事例
 
-参见 [redis-rb-cluster](https://github.com/antirez/redis-rb-cluster)
+参见 [redis-rb-cluster](https://github.com/antirez/redis-rb-cluster)。
+
+其中的consistency-test.rb是一个简单的一致性检测脚本，它能告诉你是否集群丢失了数据或没有收到集群的响应。
+
+    $ ruby consistency-test.rb
+    925 R (0 err) | 925 W (0 err) |
+    5030 R (0 err) | 5030 W (0 err) |
+    9261 R (0 err) | 9261 W (0 err) |
+    13517 R (0 err) | 13517 W (0 err) |
+    17780 R (0 err) | 17780 W (0 err) |
+    22025 R (0 err) | 22025 W (0 err) |
+    25818 R (0 err) | 25818 W (0 err) |
 
 ## 测试故障转移
 
+&emsp;&emsp;在测试期间，最好运行起一致性检测脚本consistency-test.rb方便观察。
 
+为了触发failover，最简单的方式是使进程crash，在我们的例子中就是使某个节点crash。
 
+我们先通过下边的命令找到一个master节点:
 
+    $ redis-cli -p 7000 cluster nodes | grep master
+    3e3a6cb0d9a9a87168e266b0a0b24026c0aae3f0 127.0.0.1:7001 master - 0 1385482984082 0 connected 5960-10921
+    2938205e12de373867bf38f1ca29d31d0ddb3e46 127.0.0.1:7002 master - 0 1385482983582 0 connected 11423-16383
+    97a3a64667477371c4479320d683e4c8db5858b1 :0 myself,master - 0 0 0 connected 0-5959 10922-11422
 
+可以看到7000、70001和70005，现在使用DEBUG SEGFAULT命令将7002节点：
 
+    $ redis-cli -p 7002 debug segfault
+    Error: Server closed the connection
 
+现在在一致性脚本运行的窗口可以看到如下输出:
 
+    18849 R (0 err) | 18849 W (0 err) |
+    23151 R (0 err) | 23151 W (0 err) |
+    27302 R (0 err) | 27302 W (0 err) |
 
+    ... many error warnings here ...
 
+    29659 R (578 err) | 29660 W (577 err) |
+    33749 R (578 err) | 33750 W (577 err) |
+    37918 R (578 err) | 37919 W (577 err) |
+    42077 R (578 err) | 42078 W (577 err) 
 
+通过输出结果发现集群不能进行读写，因而没有不一致的数据产生。这听起来可能有些出乎意料，因为在本教程的第一部分中，我们提到了Redis集群在故障转移期间会丢失写操作，因为它使用异步复制，我们没有说的是这是不太可能发生的,因为Redis发送回复到客户端，和命令复制到slave大约在同一时间，所以有一个很小的丢失数据的窗口。虽然概率很小但是也能会发生。现在我们看下failover后的集群状况(已经手动重启了crash的节点,重新加入了集群变成了从节点)。
 
+    $ redis-cli -p 7000 cluster nodes
+    3fc783611028b1707fd65345e763befb36454d73 127.0.0.1:7004 slave 3e3a6cb0d9a9a87168e266b0a0b24026c0aae3f0 0 1385503418521 0 connected
+    a211e242fc6b22a9427fed61285e85892fa04e08 127.0.0.1:7003 slave 97a3a64667477371c4479320d683e4c8db5858b1 0 1385503419023 0 connected
+    97a3a64667477371c4479320d683e4c8db5858b1 :0 myself,master - 0 0 0 connected 0-5959 10922-11422
+    3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 127.0.0.1:7005 master - 0 1385503419023 3 connected 11423-16383
+    3e3a6cb0d9a9a87168e266b0a0b24026c0aae3f0 127.0.0.1:7001 master - 0 1385503417005 0 connected 5960-10921
+    2938205e12de373867bf38f1ca29d31d0ddb3e46 127.0.0.1:7002 slave 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 0 1385503418016 3 connected
 
+现在主节点运行在7000、7001和7005端口，之前的master现在运行在7002端口上，现在成为了7005的从节点。
 
+CLUSTER NODES命令的输出格式:
 
+* NODE ID
+* ip:port
+* falgs: master, slave, myself, fail, ...
+* 如果是从节点则是主节点的NODE ID
+* 最近一个在等待回复的ping时间
+* 最近一个收到的PONG时间
+* 这个节点的config epoch
+* 连接到节点的连接状态
+* 负责的slot
+
+## 手动故障转移
+
+&emsp;&emsp;有时进行手动failover是需要的，如升级集群中的master节点，先把它转变成从节点在进行升级，这样对集群的影响就很小了。
+
+通过CLUSTER FAILOVER命令实现手动failover，这个命令必须是在你想要进行failover的master节点下的其中一个slave节点上进行的。
+
+手动进行failover与实际发生的failover相比是特殊和安全的。手动failver在新的master从旧的master复制完数据后才会通知client切换到新的master。
+
+下面是进行手动failover时产生的日志:
+
+    # Manual failover user request accepted.
+    # Received replication offset for paused master manual failover: 347540
+    # All master replication stream processed, manual failover can start.
+    # Start of election delayed for 0 milliseconds (rank #0, offset 347540).
+    # Starting a failover election for epoch 7545.
+    # Failover election won: I'm the new master.
+
+连接到进行failover的master节点上的连接会被暂停，同时master发送它的偏移信息到slave，等待slave复制数据完成后，q启动进行failover，旧的master会被通知进行配置切换。当旧的master上的被暂停的连接放行后，将会重定向新的master。
+
+## 新增节点
+
+&emsp;&emsp;添加新节点基本上就是添加一个空节点，然后将一些数据移动到其中的过程，如果设置了成为某个主节点的副本则成为一个slave节点，否则则是master节点。
+
+两种情况都会演示，先看下成为一个master的情况。
+
+按照之前的手动启动一个节点的步骤启动一个端口为7006的节点。使用rdis-cli将节点加入集群:
+
+    redis-cli --cluster add-node 127.0.0.1:7006 127.0.0.1:7000
+
+第一个参数是新节点的地址，第二个参数是随机选择的一个已知节点地址。
+
+实际上redis-cli在这里并没有做什么，仅是发送CLUSTER MEET消息到节点，操作之前会先检查集群的状态。
+
+查询集群的节点信息可以看到新节点已经加入集群:
+
+    redis 127.0.0.1:7006> cluster nodes
+    3e3a6cb0d9a9a87168e266b0a0b24026c0aae3f0 127.0.0.1:7001 master - 0 1385543178575 0 connected 5960-10921
+    3fc783611028b1707fd65345e763befb36454d73 127.0.0.1:7004 slave 3e3a6cb0d9a9a87168e266b0a0b24026c0aae3f0 0 1385543179583 0 connected
+    f093c80dde814da99c5cf72a7dd01590792b783b :0 myself,master - 0 0 0 connected
+    2938205e12de373867bf38f1ca29d31d0ddb3e46 127.0.0.1:7002 slave 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 0 1385543178072 3 connected
+    a211e242fc6b22a9427fed61285e85892fa04e08 127.0.0.1:7003 slave 97a3a64667477371c4479320d683e4c8db5858b1 0 1385543178575 0 connected
+    97a3a64667477371c4479320d683e4c8db5858b1 127.0.0.1:7000 master - 0 1385543179080 0 connected 0-5959 10922-11422
+    3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 127.0.0.1:7005 master - 0 1385543177568 3 connected 11423-16383
+
+这时新节点已经连接到集群，能够重定向client到正确的节点，但是新节点相比于老节点有两个特点:
+
+* 由于没有分配slot所以没有数据
+* 由于没有分配slot，不能参与选举投票
+
+使用redis-cli的重新分片命令可以为新的master节点分配slot。
+
+#### 新增一个节点作为从节点
+
+&emsp;&emsp;有两种方式将新增的节点成为从节点，最明显的方法是再次使用redis-cli:
+
+    redis-cli --cluster add-node 127.0.0.1:7006 127.0.0.1:7000 --cluster-slave
+
+随机从副本较少的主节点中选择一个成为其副本。
+
+当然也可以指定主节点:
+
+    redis-cli --cluster add-node 127.0.0.1:7006 127.0.0.1:7000 --cluster-slave --cluster-master-id 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e
+
+还有其它的手动方式可以指定成为某个master的副本，使用CLUSTER REPLICATE命令。这个命令也可以用于将当前节点变成新指定的master的副本。
+
+    redis 127.0.0.1:7006> cluster replicate 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e
+
+现在集群中新加了一个副本，集群中的其它节点也知道了这个节点(配置更新后)。
+
+    $ redis-cli -p 7000 cluster nodes | grep slave | grep 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e
+    f093c80dde814da99c5cf72a7dd01590792b783b 127.0.0.1:7006 slave 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 0 1385543617702 3 connected
+    2938205e12de373867bf38f1ca29d31d0ddb3e46 127.0.0.1:7002 slave 3c3a0c74aae0b56170ccb03a76b60cfe7dc1912e 0 1385543617198 3 connected
+
+## 移除节点
+
+移除一个从节点直接使用del-node命令:
+
+    redis-cli --cluster del-node 127.0.0.1:7000 `<node-id>`
+
+第一个参数是集群中的任意一个节点，第二个参数是你想移除的节点。
+
+移除master节点也可以用同样的方式，但是master节点必须是一个空节点。如果是一个非空节点，首先需要将数据分片到其它节点。另外一种方式是进行手动failover在其变成从节点后在直接移除，但是如果你是想减少集群中master的数量，这种方式是无效的只能进行重新分片。
+
+## 副本漂移
+
+&emsp;&emsp;在Redis集群中将一个salve迁移到其它master下，通过执行以下命令即可:
+
+    CLUSTER REPLICATE <master-node-id>
+
+这个操作被称为副本漂移(replicas migration)，能够提高集群的可靠性。
+
+副本偏移的详细信息才Redis Cluster Specification，这里仅仅是提供大概的思路和应该怎样做。
+
+进行副本偏移的原因是，集群对故障的抵抗能力与附加到master上的副本数量相关。
+
+例如，如果集群每个master只有一个副本，当master与副本同时失效时，集群将不能正常运转，原因很简单，因为没有其它实例拥有master提供的hash slot的副本。网络分区可能会隔离一些节点，还有其它一些故障，类似节点的硬件与软件故障，这些都会导致集群不能正常工作。
+
+为了提高可靠性可以为每个master增加副本，但是成本较高。
 
 
 
