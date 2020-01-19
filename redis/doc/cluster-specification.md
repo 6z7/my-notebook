@@ -54,6 +54,92 @@ Redis集群在分区的少数端不可用。在分区的多数侧假设至少有
 
 Redis集群被设计成在集群中少数节点故障时依然能正常服务，但是对于在发生大量网络分区时依然能够使用的场景这不是一种合适的解决方案。
 
-由N个maste节点，每个master有一个salve组成的集群，如果只有一个节点被分区集群将继续可用。当有2个节点分区时，集群可用的概率1-(1/N*2)
+由N个maste节点，每个master有一个salve组成的集群，如果只有一个节点被分区集群将继续可用。当有2个节点分区时，集群可用的概率1-(1/N*2)。(只有一个节点失败时剩余N\*2-1个节点，正好没有从节点的master失败的概率为1/(N\*2-1)))。
+
+例如，集群中有个5个节点每个节点有一个从节点,两个节点与集群分区的概率为1/(5*2-1)=11.11%，分区后集群将不可以用。
+
+由于有副本漂移机制，在许多实际的场景中，通过该机制将副本迁移到孤立的master节点，集群的可用性得到了提升。因此在每次成功的失败事件后，集群都可以进行重新配置从属布局，以便更好的抵抗下一次失败。
+
+### 性能
+
+Redis集群不代理命令到key所在的节点，而是重定向client到正确的节点。
+
+最终client获得了节点与slot之间的关系。因此正常情况下client可以直接连接到正确的节点。
+
+因为使用异步复制，节点不对等待其他的从节点的回应，如果没有显式使用WAIT命令。
+
+多key操作都是在同一个节点上进行，除非进行了重新分片否则key不会出现在多个节点上。
+
+正常情况下操作与单个实例的操作完全相同。这意味着，在具有N个主节点的Redis集群中，当设计线性扩展时，您可以期望与单个Redis实例乘以N的性能相同。同时，查询通常在一次往返中执行，因为客户机通常保留与节点的持久连接，因此，延迟数据也与单个独立Redis节点的情况相同。非常高的性能和可扩展性，同时保持弱而合理的数据安全性和可用性是Redis集群的主要目标。
+
+### 为什么要避免合并操作
+
+Redis集群设计避免了在多个节点中同一个键值对的冲突版本。Redis中的值通常非常大；通常会看到包含数百万个元素的列表或排序集。数据类型在语义上也很复杂。传输和合并这些类型的值可能是一个主要的瓶颈，并且/或者可能需要应用程序端逻辑的大量参与、存储元数据的额外内存等等。
+
+### Redis集群主要组件概述
+
+## key分配模型
+
+键空间分割成16384个slot，有效的集群最大节点限制也是16384(建议最大节点在1000个左右)。
+
+每个master节点负责16384个slot的一部分。当没有发生重新分片时slot的分配是稳定的。
+
+映射key到slot的算法如下:
+
+    HASH_SLOT = CRC16(key) mod 16384
+
+CRC16算法规定如下:
+
+* 算法名称:XMODEM(也称为XMODEM或CRC-16/ACORN)
+* 宽度:16个字节
+* Poly: 1021 (That is actually x16 + x12 + x5 + 1)
+* 初始值:0000
+* Reflect Input byte: False
+* Reflect Output CRC: False
+* Xor constant to output CRC: 0000
+* Output for "123456789": 31C3
+
+CRC16有14位bit的输出(这就是为什么在上面的公式中有一个16384模运算)。在我们的测试中，CRC16在16384插槽上均匀分布不同类型的key方面表现得非常好。
+
+注意:本文附录A中提供了所用CRC16算法的参考实现。
+
+### key hash tag
+
+hash tag是一种实现多一个key分配到同一个slot的方法。hash tag会使用key的"{..}"部分进行计算crc16的值而不是使用整个key进行计算。
+
+    unsigned int HASH_SLOT(char *key, int keylen) {
+        int s, e; /* start-end indexes of { and } */
+
+        /* Search the first occurrence of '{'. */
+        for (s = 0; s < keylen; s++)
+            if (key[s] == '{') break;
+
+        /* No '{' ? Hash the whole key. This is the base case. */
+        if (s == keylen) return crc16(key,keylen) & 16383;
+
+        /* '{' found? Check if we have the corresponding '}'. */
+        for (e = s+1; e < keylen; e++)
+            if (key[e] == '}') break;
+
+        /* No '}' or nothing between {} ? Hash the whole key. */
+        if (e == keylen || e == s+1) return crc16(key,keylen) & 16383;
+
+        /* If we are here there is both a { and a } on its right. Hash
+        * what is in the middle between { and }. */
+        return crc16(key+s+1,e-s-1) & 16383;
+    }
+
+### 集群节点属性
+
+每一个节点都要一个唯一的名字node id。节点名是160位随机数的十六进制表示的，在节点启动时生成(通常使用/dev/urandom)。节点将名字保存到配置文件中，之后将一直使用这个名字，除非配置文件被删除或使用了CLUSTEER RESET命令，名称才会变换。
+
+node id用于在整个集群中唯一标识每个节点。节点改变ip地址时不用改变它的node id。集群通过gossip协议可以检测到ip/por和配置的变化。
+
+集群中的节点还有很多其它属性，有些是只需要在本节点保存的如果最后一次ping的时间，有些是需要集群中的不同节点间进行同步的。
+
+
+
+
+
 
 
