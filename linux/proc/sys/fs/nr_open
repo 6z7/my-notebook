@@ -1,0 +1,7 @@
+nr_open 定义是单进程最大fd数量 
+
+单个进程允许打开的最大fd数量: ulimit -n
+
+单个进程（例如进程id为5454）已经打开的fd.查询语句  ls -l /proc/5454/fd/
+
+修改/ect/sysct.conf 修改fs.nr_open sysctl -p生效

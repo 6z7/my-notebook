@@ -1,0 +1,26 @@
+//对每个进程的资源进行限制
+ulimit -a 查询所有限制的值  unlimited 是一个特殊值，用于表示不限制
+ulimit -Sn 查看的是软限制
+
+ulimit -Hn 查看的是硬限制
+
+ulimit -n 查看的是软限制
+
+ulimit -S -u 20000  只修改软限制
+ulimit -H -u 32000  只修改硬限制(普通用户只能往比设定值小的调，不能往更大值调)
+ulimt -u 32000      软硬限制同时修改，但不能超过原有的硬限制值
+
+
+软限制可以在程序的进程中自行改变(突破限制)，而硬限制则不行(除非程序进程有root权限)
+
+修改下面的文件更改系统的限制
+sudo vim /etc/security/limit.conf
+
+例如我们为nginx的运行账户nginx设置打开文件的限制，在上面的文件中加入
+domain   type    item      value
+nginx    soft    nofile    10000
+nginx    hard  nofile     30000
+在这个文件中我们可以对cpu, 内存等等设置限制
+
+file-max应该大于hard limit
+
