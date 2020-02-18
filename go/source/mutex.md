@@ -84,7 +84,7 @@
                     atomic.CompareAndSwapInt32(&m.state, old, old|mutexWoken) {
                     awoke = true
                 }
-                //自旋转30次数
+                //自旋转30个时钟周期
                 runtime_doSpin()
                 //统计当前goroutine自旋次数
                 iter++
