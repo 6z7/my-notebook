@@ -435,4 +435,3 @@ chan的源码位于runtime/chan.go文件中
             goready(gp, 3)
         }
     }
-

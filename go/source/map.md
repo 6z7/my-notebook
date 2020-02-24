@@ -182,6 +182,36 @@ func newEntry(i interface{}) *entry {
 func (e *entry) unexpungeLocked() (wasExpunged bool) {
 return atomic.CompareAndSwapPointer(&e.p, expunged, nil)
 }
+
+//从read部分同步数据到dirty部分,被删除的key不在同步
+func (m *Map) dirtyLocked() {
+	if m.dirty != nil {
+		return
+	}
+
+	read, _ := m.read.Load().(readOnly)
+	m.dirty = make(map[interface{}]*entry, len(read.m))
+	for k, e := range read.m {
+		//read部分p=nil的标记为删除状态，这种数据不会被同步到dirty
+		if !e.tryExpungeLocked() {
+			m.dirty[k] = e
+		}
+	}
+}
+
+//read部分p=nil的标记为删除状态
+func (e *entry) tryExpungeLocked() (isExpunged bool) {
+	p := atomic.LoadPointer(&e.p)
+	for p == nil {
+		//key已经被delete 标记对应的entry为删除状态
+		if atomic.CompareAndSwapPointer(&e.p, nil, expunged) {
+			return true
+		}
+		p = atomic.LoadPointer(&e.p)
+	}
+	return p == expunged
+}
+
 ```
 
 ## Delete
