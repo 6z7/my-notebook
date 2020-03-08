@@ -4,7 +4,7 @@ ulimit -Sn 查看的是软限制
 
 ulimit -Hn 查看的是硬限制
 
-ulimit -n 查看的是软限制
+ulimit -n 查看的是打开的文件数
 
 ulimit -S -u 20000  只修改软限制
 ulimit -H -u 32000  只修改硬限制(普通用户只能往比设定值小的调，不能往更大值调)
