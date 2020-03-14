@@ -35,11 +35,9 @@ Redis是一个使用client-server模式和请求/响应协议的tcp服务器。
 Redis很早之前就支持管道这种方式，所以无论运行什么版本的redis,都能使用。下面是一个使用ntecat发送批量命令的例子:
 
 ```shell
-$ (printf "PING\r\nPING\r\nPING\r\n"; sleep 1) | nc localhost 6379
-+PONG
-+PONG
-+PONG
+~$ (printf "PING\r\nPING\r\nPING\r\nset aa 123\r\nget aa\r\n"; sleep 1) | nc localhost 6379
 ```
+![](./asset/pipelining.png)
 
 这一次我们不是为每个调用花费RTT成本，而是为三个命令花费一次。
 
