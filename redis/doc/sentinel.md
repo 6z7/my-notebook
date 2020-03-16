@@ -96,11 +96,107 @@ sentinel parallel-syncs resque 5
 
 ## 哨兵部署示例
 
+...
+
+## Sentinel、Docker、NAT和可能的问题
+
+Docker使用一种端口映射的技术:docker容器中运行的程序可能暴露一个与它认为的不同端口。对于在同一个服务器上同时运行多个使用相同端口的程序的场景，这种方式是有用的。
+
+并不是只有Docker才会产生这种情况，NAT也会造成端口映射，有时IP也会被重新映射。
+
+端口和IP映射，在哨兵中会产生两种问题:
+
+1. 哨兵自动发现其它哨兵的机制将不能正常工作，因为自动发现是基于每个哨兵发出的包含它监听的ip和端口的hello消息，然而哨兵不知道经过了地址或端口映射，所以它发出的对于其它哨兵是不正确的不能用于建立连接
+2. 副本在master节点的info命令的输出中列出，地址通过tcp连接拿到的，但是端口是副本在握手时自己确定的，所以也存在端口映射的问题
+
+由于哨兵自动发现副本是通过主节点的Info命令的输出信息发现的。由于发现的副本无法连接，哨兵将不能对主节点进行故障转移，因为从哨兵的角度来看是没有可用的副本还进行转移的。除非Docker使用端口1:1映射，不然哨兵无法正常工作。
+
+对于第一个问题，如果你使用docker运行哨兵并进行了端口转发(后其它任何端口映射之类的操作)，可以通过两个配置强制哨兵使用特定的IP和端口进行声明:
+```
+sentinel announce-ip <ip>
+sentinel announce-port <port>
+```
+
+需要注意的是，如果Docker运行时使用了host的网络模式(--network=host)则不会有问题。
 
 
+# 快速入门教程
 
+假设有3个哨兵实例，端口分别为5000、5001和5002，和一个端口为6379的主节点，主机节点的副本6380，ip地址使用127.0.0.1.
 
+三个哨兵的配置文件类似这样:
+```
+port 5000
+sentinel monitor mymaster 127.0.0.1 6379 2
+sentinel down-after-milliseconds mymaster 5000
+sentinel failover-timeout mymaster 60000
+sentinel parallel-syncs mymaster 1
+```
+其它两个哨兵的配置使用端口5001和5002.
 
+上面的配置文件中有些注意事项:
+
+* mymater是主节点与它的副本的唯一标识。每个master和它的副本都有一个不同的名字，哨兵可以同时监视不同的master集合
+* down-after-milliseconds设置为了5000毫秒，如果在5秒内没有收到主节点对ping的回复，主节点将会被认为主观下线 
+
+一旦启动三个哨兵，将会看到如下日志:
+
+`+monitor master mymaster 127.0.0.1 6379 quorum 2`
+
+这是哨兵事件，如果订阅了相应的通道可以收到。
+
+哨兵在故障检测和故障转移期间生成并记录不同的事件。
+
+## 询问哨兵关于主节点的状态
+
+```
+$ redis-cli -p 5000
+127.0.0.1:5000> sentinel master mymaster
+ 1) "name"
+ 2) "mymaster"
+ 3) "ip"
+ 4) "127.0.0.1"
+ 5) "port"
+ 6) "6379"
+ 7) "runid"
+ 8) "953ae6a589449c13ddefaee3538d356d287f509b"
+ 9) "flags"
+10) "master"
+11) "link-pending-commands"
+12) "0"
+13) "link-refcount"
+14) "1"
+15) "last-ping-sent"
+16) "0"
+17) "last-ok-ping-reply"
+18) "735"
+19) "last-ping-reply"
+20) "735"
+21) "down-after-milliseconds"
+22) "5000"
+23) "info-refresh"
+24) "126"
+25) "role-reported"
+26) "master"
+27) "role-reported-time"
+28) "532439"
+29) "config-epoch"
+30) "1"
+31) "num-slaves"
+32) "1"
+33) "num-other-sentinels"
+34) "2"
+35) "quorum"
+36) "2"
+37) "failover-timeout"
+38) "60000"
+39) "parallel-syncs"
+40) "1"
+```
+
+如你所见，输出了大量信息，我们对其中的一些感兴趣:
+
+1. num-other-sentinels等于2，所以我们知道哨兵已经发现了主机节点的其它2个哨兵
 
 
 
