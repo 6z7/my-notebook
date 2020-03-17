@@ -196,8 +196,109 @@ $ redis-cli -p 5000
 
 如你所见，输出了大量信息，我们对其中的一些感兴趣:
 
-1. num-other-sentinels等于2，所以我们知道哨兵已经发现了主机节点的其它2个哨兵
+1. num-other-sentinels等于2，所以我们知道哨兵已经发现了主机节点的其它2个哨兵。如果查看日志将能看到`+sentinel`事件生成
+2. flags主节点的状态，master, s_down, o_down
+3. num-slaves 副本的数量
 
+```
+// 查看监视的主节点的信息
+sentinel master mymaster
+// 查看所有副本的信息
+SENTINEL slaves mymaster
+// 查看所有哨兵的信息 不包括执行当前命令的哨兵
+SENTINEL sentinels mymaster
+```
+
+## 获取主节点的地址
+
+哨兵为客户端提供主节点和副本的地址配置信息，当进行了失败转移或重新配置，客户端通过api可以查询到新的主节点地址信息。
+```
+127.0.0.1:5000> SENTINEL get-master-addr-by-name mymaster
+1) "127.0.0.1"
+2) "6379"
+```
+
+## 测试失败转移
+
+现在我们搭建的哨兵可以进行测试了。可以通过kill掉master，查看配置是否改变。也可以通过下面的命令实现：
+
+`redis-cli -p 6379 DEBUG sleep 30`
+
+这个命令会导致master不可达，睡眠30秒。模拟了master因为某些原因别挂起。
+
+如果查看日志会看到:
+
+1. 每个哨兵检测到master不可达，生成`+sdown`事件
+2. 多数节点认为master不可达，升级为`+odown`
+3. 哨兵投票选举一个leader开始第一次失败转移尝试
+4. 失败转移
+
+```
+1458:X 17 Mar 2020 06:31:19.490 # +sdown master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.550 # +odown master my-master 127.0.0.1 6379 #quorum 2/2
+1458:X 17 Mar 2020 06:31:19.552 # +new-epoch 2
+1458:X 17 Mar 2020 06:31:19.553 # +try-failover master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.564 # WARNING: Sentinel was not able to save the new configuration on disk!!!: Permission denied
+1458:X 17 Mar 2020 06:31:19.566 # +vote-for-leader 99484e2f62d8bcd516bc4e3050fdf0301d228e9a 2
+1458:X 17 Mar 2020 06:31:19.605 # c3b7bebb0e7ed9ad3beb267e4333243304dd736b voted for 99484e2f62d8bcd516bc4e3050fdf0301d228e9a 2
+1458:X 17 Mar 2020 06:31:19.608 # 7be0fdaa6a44a229d592535fe747284abe5999cb voted for 99484e2f62d8bcd516bc4e3050fdf0301d228e9a 2
+1458:X 17 Mar 2020 06:31:19.621 # +elected-leader master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.623 # +failover-state-select-slave master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.677 # +selected-slave slave 127.0.0.1:6479 127.0.0.1 6479 @ my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.679 * +failover-state-send-slaveof-noone slave 127.0.0.1:6479 127.0.0.1 6479 @ my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.738 * +failover-state-wait-promotion slave 127.0.0.1:6479 127.0.0.1 6479 @ my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.776 # WARNING: Sentinel was not able to save the new configuration on disk!!!: Permission denied
+1458:X 17 Mar 2020 06:31:19.778 # +promoted-slave slave 127.0.0.1:6479 127.0.0.1 6479 @ my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.780 # +failover-state-reconf-slaves master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.819 # +failover-end master my-master 127.0.0.1 6379
+1458:X 17 Mar 2020 06:31:19.821 # +switch-master my-master 127.0.0.1 6379 127.0.0.1 6479
+1458:X 17 Mar 2020 06:31:19.823 * +slave slave 127.0.0.1:6379 127.0.0.1 6379 @ my-master 127.0.0.1 6479
+1458:X 17 Mar 2020 06:31:19.832 # WARNING: Sentinel was not able to save the new configuration on disk!!!: Permission denied
+1458:X 17 Mar 2020 06:31:49.872 # +sdown slave 127.0.0.1:6379 127.0.0.1 6379 @ my-master 127.0.0.1 6479
+```
+
+# Sentinel API
+
+哨兵提供了检查哨兵状态、查看主节点与副本的健康状态、运行时修改配置以及订阅哨兵的通知的api
+
+## 哨兵命令
+
+* PING 
+* SENTINEL masters：显示监视的主节点状态
+* SENTINEL master \<master name>：显示指定主节点的状态
+* SENTINEL slaves \<master name>：显示副本信息
+* SENTINEL sentinels \<master name>：显示监视的哨兵
+* SENTINEL get-master-addr-by-name \<master name>：查询主机点的ip和端口
+* SENTINEL reset \<pattern>: 重置匹配的主节点的哨兵的所有状态
+* SENTINEL failover \<master name>：强制进行故障转移，不要其它哨兵投票
+* SENTINEL ckquorum \<master name>；检查是否满足故障转移需要的quorum
+* SENTINEL flushconfig ：保存当前配置和状态到磁盘
+
+从Redis2.8.4开始，哨兵提供了新增、修改、产出配置的api。如果有多个哨兵，需要每个哨兵都执行一遍相同的操作。
+
+* SENTINEL MONITOR \<master name> \<ip> \<port> \<quorum> ：监控一个新的master,与sentinel.conf文件中的sentinel monitor完全相同，除了host只能使用ip地址外
+* SENTINEL REMOVE \<master name> ：移除监控
+* SENTINEL SET \<master name> \<option> \<value>  ：修改配置，sentinel.conf中的参数都可以通过该命令修改
+
+## 新增或移除哨兵
+
+新增一个哨兵到部署的哨兵集群中很容易，因为哨兵实现了自动发现机制。你只需要在启动哨兵时配置监视一个有效的master即可。10s内，新增的哨兵就能获得其它的哨兵和主节点的副本。
+
+如果一次需要添加多个哨兵，建议一个接一个添加，等待所有其它哨兵都知道前一个添加的哨兵的情况后再添加下一个哨兵。
+
+新增完成后可以使用` SENTINEL MASTER mastername`检查是否所有的哨兵都监视相同的主节点。
+
+删除哨兵稍微有点复杂，因为哨兵不会忘记它看到过的哨兵，即使它已经不可达。删除哨兵需要以下步骤:
+
+1. 停止哨兵进程
+2. 发送`SENTINEL RESET *` 到所有的哨兵节点上(可以使用特定的master name替换\*)
+3. 检查所有哨兵的`SENTINEL MASTER mastername`返回值是否一致
+
+## 删除旧的主节点或不可达的副本
+
+哨兵不会忘记主节点的副本，即使它们长时间不可达。这对于发生网络分区或失败后的，哨兵重新配置是有用的。而且，失败转移后，被转移的主节点会成为新的主节点的副本。通过在所有的哨兵上执行`SENTINEL RESET mastername`命令，可以刷新当前主节点的副本列表。
+
+## 发布/订阅消息
 
 
 
