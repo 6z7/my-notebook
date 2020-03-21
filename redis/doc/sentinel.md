@@ -300,5 +300,296 @@ SENTINEL sentinels mymaster
 
 ## 发布/订阅消息
 
+客户端订阅哨兵上的通道获取事件通知。        
 
+通道的名称和事件名称一致。如名字为+sdown的通道将收到所有实例进入SDOWN状态(从哨兵角度看主机节点不可达)的通知。
 
+下面是你可以使用api收到的所有通道和消息格式。第一个是通道/事件名称，后边是数据格式。
+
+`<instance-type> <name> <ip> <port> @ <master-name> <master-ip> <master-port>`
+
+@后边的是master信息，这部分是可选的，只有当实例不是主节点时才出现。
+
+* +reset-master \<instance details> -- 主节点被重置.
+
+* +slave \<instance details> -- 新的副本加入.
+
+* +failover-state-reconf-slaves \<instance details> -- Failover state changed to reconf-slaves state.
+
+* +failover-detected \<instance details> -- A failover started by another Sentinel or any other external entity was detected (An attached replica turned into a master).
+
+* +slave-reconf-sent \<instance details> -- The leader sentinel sent the SLAVEOF command to this instance in order to reconfigure it for the new replica.
+
+* +slave-reconf-inprog \<instance details> -- The replica being reconfigured showed to be a replica of the new master ip:port pair, but the synchronization process is not yet complete.
+
+* +slave-reconf-done \<instance details> -- The replica is now synchronized with the new master.
+
+* -dup-sentinel \<instance details> -- One or more sentinels for the specified master were removed as duplicated (this happens for instance when a Sentinel instance is restarted).
+
+* +sentinel \<instance details> -- 新的哨兵加入
+
+* +sdown \<instance details> -- 主观下线状态
+
+* -sdown \<instance details> -- 退出主观下线状态
+
+* +odown \<instance details> -- 客观下线状态
+
+* -odown \<instance details> -- 退出客观下线装填
+
+* +new-epoch \<instance details> -- epoch被更新
+
+* +try-failover \<instance details> -- 哨兵准备进行failover,等待被选举为leader
+
+* +elected-leader \<instance details> -- 哨兵赢得当前的epoch阶段的leader，可以进行failover
+
+* +failover-state-select-slave \<instance details> -- New failover state is select-slave: we are trying to find a suitable replica for promotion.
+
+* no-good-slave \<instance details> -- There is no good replica to promote. Currently we'll try after some time, but probably this will change and the state machine will abort the failover at all in this case.
+
+* selected-slave \<instance details> -- We found the specified good replica to promote.
+
+* failover-state-send-slaveof-noone \<instance details> -- We are trying to reconfigure the promoted replica as master, waiting for it to switch.
+
+* failover-end-for-timeout \<instance details> -- The failover terminated for timeout, replicas will eventually be configured to replicate with the new master anyway.
+
+* failover-end \<instance details> -- The failover terminated with success. All the replicas appears to be reconfigured to replicate with the new master.
+
+* switch-master \<master name> \<oldip> \<oldport> \<newip> \<newport> -- 主机节点新的ip和端口
+
+* +tilt -- Tilt mode entered.
+
+* -tilt -- Tilt mode exited.
+
+## -BUSY状态处理
+
+当Lua脚本执行时间超过配置的限制时，redis讲返回-BUSY错误。当进行failover之前发生了这种错误，哨兵将先发送`script kill`命令，但是只有在脚本是只读的情况下才会成功。如果在尝试之后，redis实例还是处于-BUSY状态，那么failover将失败。            
+
+## 副本优先级
+
+Redis实例有一个配置`replica-priority`，在info命令的输出可以看到，哨兵将使用这个参数排序挑选出一个副本升级为主节点。
+
+1. 如果副本优先级设置为0，则该副本不会被提升为主节点
+2. 值越小优先级越高
+
+## 哨兵和Redis认证
+
+为了安全，master配置了客户端连接需要密码，那么副本需要为了与主节点连接需要知道密码。
+
+这是通过以下配置文件中的指令实现的:
+
+* requirepass  设置主节点的密码
+* masterauth   副本配置主节点需要的密码
+
+由于使用了哨兵，master节点不在固定。由于副本可以升级为master,master可以配置为新的master的副本，所以，如果要认证，需要在所有实例上都配置以上2个指令。
+
+哨兵连接需要认证的节点时，需要配置以下指令:  
+`sentinel auth-pass <master-group-name> <pass>`
+
+## 配置哨兵需要认证
+
+从Redis 5.0.1可以配置哨兵需要密码认证
+
+`requirepass "your_password_here"`
+
+所有的哨兵需要使用相同的密码，同时连接哨兵的客户端需要支持向哨兵发送`AUTH`命令
+
+## 哨兵客户端实现
+
+哨兵客户端的实现参见： [Sentinel clients guidelines](https://redis.io/topics/sentinel-clients)
+
+# 更深入的概念
+
+下面的章节中，我们将讨论集群是如何工作的。
+
+## SODWN和ODOWN故障状态
+
+Redis哨兵有两个不同的概念，主观下线(Subjectively Down,SDOWN)和客观下线(Objectively Down,ODOWN)。主观下线时哨兵从自己的视角观察到主节点在有限的时间内不可达，客观下线是配置的quorum个哨兵认为主节点不在有限的时间内不可达。
+
+哨兵在配置的(is-master-down-after-milliseconds)有限时间内没有收到PING的回复，会认为主节点主观下线。
+
+可以接受的PING的响应有:
+
+* +PONG
+* -LOADING error
+* -MASTERDOWN error
+
+除此之外，其它的回复或没有回复则认为无效。
+
+SDOWN转为ODOWN的过程没有使用强一致性算法，而是使用了gossip:哨兵在有限的时间内收到了足够多的其它哨兵的报告主节点不可达，则SDOWN被提升为ODOWN。
+
+ODOWN只针对master节点，副本节点只有SDOWN状态。
+
+处于SDOWN状态的副本不会被提升为主节点
+
+## 哨兵与副本的自动发现
+
+哨兵与其它哨兵保持连接，以便相互检查对方的可用性，并交换消息。不需要在每个哨兵上配置其它哨兵的地址，哨兵使用Redis的发布/订阅功能来发现其它监视同一个master的哨兵和副本。
+
+这个功能的实现是通过发送`hello messages`到`__sentinel__:hello`通道实现的。
+
+类似的，也不需要配置连接主节点的副本，哨兵通过查询Redis自动发现。
+
+* 每个哨兵发布消息到其监视的master和副本上的` __sentinel__:hello`通道，每隔2秒发送一次，消息内容包含哨兵的ip、端口、runid
+
+* 每个哨兵订阅master和副本上的`__sentinel__:hello`通道，查找自己还不知道的哨兵。当检测到新的哨兵，则加入到监视当前master的哨兵集群
+
+* Hello消息中包含主节点的当前配置信息，如果哨兵上的关于主节点的配置比收到的配置信息旧，则更新哨兵上的配置
+
+* 添加新的哨兵监视主节点之前，哨兵会检查是否有其它哨兵与其拥有相同的runid或地址(ip和端口)。如果有相同的哨兵则先移除，在添加新的。
+
+## 故障转移过程之外哨兵的重新配置
+
+即使没有failover在处理，哨兵也会一直尝试在被监视的节点上进行以下配置:
+
+* 副本声称是master(根据它自己的配置),将会被配置为当前master的副本
+
+* 副本连接了错误的master,将会被重新配置为正确的master的副本
+
+要让哨兵重新配置副本，必须在一段时间内观察到错误的配置，这段时间要比广播新配置的时间长。
+
+关于本节要记住的重要一课是：Sentinel是一个系统，在这个系统中，每个进程总是试图将最后一个逻辑配置强加于被监视的实例集。
+
+## 副本选择与优先级
+
+当master处于ODOWN状态，哨兵收到大多数其它已知的哨兵授权，准备准备进行failover，需要选择一个合适的副本。
+
+副本的选择，依据以下规则：
+1. 与mater主从复制断开的时间
+2. 副本的优先级
+3. 副本的复制偏移
+4. RunID
+
+副本与主节点的断开时间(info输出)大于
+`(down-after-milliseconds * 10) + milliseconds_since_master_is_in_SDOWN_state`，那么该副本将会被排除。  
+down-after-milliseconds：哨兵判断主节点主观下线的时间  
+milliseconds_since_master_is_in_SDOWN_state：哨兵观察到的主节点已处于SDOWN状态的时间
+
+副本选择只考虑通过上述条件的副本，并根据上述条件按以下顺序对其排序。
+
+1. 副本的redis.conf文件中配置的replica-priority，值越小优先级越高
+2. 如果优先级相同，选择副本复制偏移量大的节点
+3. 如果优先级和复制偏移量都相同，则字典顺序选择RunID较小的。选择的RunID小的节点不一定是最合适的，但是可以使副本的选择过程更具有确定性
+
+Redis主服务器(在故障转移后可以转换为副本)和副本，如果有强优先权的机器，则都必须配置`replica-priority`。
+
+`replica-priority`如果配置为0，那么该节点将不会被哨兵提升为新的master，但是仍然会被哨兵配置为新的master的副本。
+
+# 内部算法
+
+在下面的章节中，我们将探讨哨兵行为的细节。用户并不需要知道所有的细节，但是对哨兵的深入了解有助于更有效地部署和操作哨兵。
+
+## Quorum
+
+每个哨兵监控的master都需要配置一个quorum。它指定了需要多少个哨兵判定master不可达才触发failover。
+
+failover触发之后，为了执行failover流程，需要至少大多数哨兵授权某个哨兵执行哨兵。在少数哨兵的分区中不会执行failover。
+
+* Quorum：需要多少个哨兵检测到master节点不可达，将其标记为ODOWN
+* 进入ODWN状态后触发failover
+* 一旦触发failover，哨兵需要获得大多数哨兵(或者超过大多数，如果quorum设置的大于大多数)的授权后尝试进行failover
+
+这种差异看起来很微妙，但实际上很容易理解和使用。例如，若果有5个哨兵，quorum设置了为2，只要2个哨兵认为master不可达就会触发failover，但是只有两个哨兵中一个获得了至少3个哨兵的授权后才能进行failover。
+
+如果quorum配置了5，必须所有的哨兵都认为master不可达，同时需要所有节点的授权才能进行failover。
+
+这意味着quorum可以通过两种方式调整哨兵：
+
+1. 如果quorum的值小于部署的哨兵的大多数，我们让哨兵对master的失败更敏感，只要有少数哨兵无法与master正常通信，就会触发failover
+2. 如果quorum的值大于部署的哨兵的大多数，则仅当存在大量(大于大多数)的哨兵认为master不可达时才会触发failover
+
+## epochs配置
+
+哨兵需要获得多数哨兵的授权才能启动故障转移，有几个重要的原因：
+
+当一个哨兵被授权，为将要被进行failover的master获得了一个唯一的配置epoch。这个数据是failover完成之后新配置的版本。因为大多数哨兵都同意这个指定的版本分配给指定的哨兵，所以其它哨兵不能在获得这个版本。这意味着每次failover的配置都有一个唯一的版本。
+
+哨兵有一个规则：如果一个哨兵投票给另一个哨兵进行指定master的failover，那么该哨兵将等待一些时间再次对同一个master进行failove(即,如果failover还没完成，哨兵投票给了其它哨兵并没有投给自己，那么该哨兵会等待一段时间后才会再次发起failover)。这个延迟等待的时间配置通过`sentinel.conf`文件中的`failover-timeout`进行配置。这意味着哨兵不会尝试同时对相同的master进行failover，第一个哨兵将尝试获得授权，如果失败等待一段时间后另一个哨兵开始尝试，以此类推。
+
+哨兵提供了liveness保证，即大多数哨兵能够正常通信，那么，当master下线时，其中一个哨兵将会被授权进行failover。
+
+Redis哨兵提供了安全保证，每个哨兵在对相同的master进行filover时,使用不同的配置epoch。
+
+## 配置传播
+
+一旦哨兵failover成功，它将广播新的配置以便其它哨兵能更新关于master的信息。
+
+要使failover被认为是成功的，它要求Sentinel能够向所选副本发送`SLAVEOF NO ONE`命令，并且随后在master的`info`输出中观察到切换到master。
+
+此时，即使副本的重新配置还在进行中，也会认为故障转移成功，并且所有哨兵都需要开始报告新配置。
+
+每个哨兵连续不断的通过Pub/Sub消息向所有的master和副本广播它的版本的关于master的配置。同时所有的哨兵等待消息，看看其它哨兵的配置是什么(也会接受到自己发送的消息)
+
+配置信息通过`__sentinel__:hello `Pub/Sub通道广播。
+
+因为每个配置有一个不同的版本号，版本号大的将胜过版本号小的。
+
+举个例子，所有的哨兵的配置开始时都认为mymaster主节点在192.168.1.50:6379。此时这个配置的版本号是1。一段时间后某个哨兵被授权使用version 2进行了failover。如果failover成功，该哨兵将广播新的配置，比如说，version 2中主机节点在192.168.1.50:9000,由于具有更高的version，其它哨兵看到这个配置后将会更新它们自己的配置。
+
+## 分区下的一致性
+
+Redis哨兵的会最终保持一致。所以每个分区都会收敛到可用的更高配置。然而，在使用哨兵的真实系统中，会有三种不同的角色：
+
+* Redis实例
+* 哨兵实例
+* 客户端
+
+为了定义系统的行为，我们必须考虑这三个因素。
+
+下面是一个3个节点组成的简单网络，每个节点都运行一个Redis实例和哨兵实例。
+
+```
+           +-------------+
+            | Sentinel 1  |----- Client A
+            | Redis 1 (M) |
+            +-------------+
+                    |
+                    |
++-------------+     |          +------------+
+| Sentinel 2  |-----+-- // ----| Sentinel 3 |----- Client B
+| Redis 2 (S) |                | Redis 3 (M)|
++-------------+                +------------+
+```
+
+在这个系统中初始状态，Redis 3是master,Redis 1和Rdis 2是副本。发生分区隔离了master。哨兵1和2启动failover提升Redis 1成为新的master。
+
+哨兵的机制保证，哨兵1和2拥有master的最新配置，由于发生了分区，哨兵3仍然是旧的配置。
+
+我们知道在分区恢复后，哨兵2将更新它的配置，但是在分区时，如果客户端和旧的master分区在一起，会发生什么？
+
+客户端仍然可以写数据到Redis 3，当分区恢复，Redis 3将成为Redis 1的副本，所有在分区期间的写数据将会丢失。
+
+根据配置，您可能希望或不希望发生以下情况：
+
+* 如果使用Redis作为cache，客户端B仍然写数据到旧的master，即使数据丢失也没什么问题
+* 如果使用Redis作为存储，可能不需要发生这种情况，需要通过配置，以部分防止这种问题
+
+由于Redis是异步复制，在这种场景下没有办法完全防止数据丢失，但是在Redis 3和Redis 1上使用下面的配置减少这种问题的影响
+
+```
+// 如果master的有效副本少于指定值，则将拒绝写操作
+min-replicas-to-write 1
+// master收到的副本的ping的最大延迟N秒，超过将拒绝写操作
+min-replicas-max-lag 10
+```
+
+使用了以上配置，Redis 3在10秒后将不用，当分区恢复后，哨兵3的配置将更新，客户端B将能获取到新的有效配置继续运行。
+
+## 哨兵状态持久化
+
+哨兵状态被持久化到哨兵的配置文件中。如，每次收到新的配置，配置会和配置epoch一块被持久化。这意味着停止和重启哨兵是安全的。
+
+## TILT模式
+
+Redis哨兵在很大程度上都依赖计算机时间：例如，为了了解一个实例是否可用，它会记住对PING命令的最新成功应答时间，并将其与当前时间进行比较，以了解它有多旧。
+
+如果计算机时间被意外改变，或者如果计算机很忙，或者进程由于某种原因被阻塞，Sentinel可能会工作不正常。
+
+当检测到可能降低系统可靠性的异常情况时，TILT模式是一种哨兵可进入的特别的保护模式。哨兵的定时任务每秒调用10次，因此，我们预计在两次调用之间大约会经过100毫秒。
+
+哨兵会记录上定时任务被调用的时间，与当前时间比较：如果差值是负值或大于2秒，则进入TILT模式。
+
+当哨兵处于TILT模式时，仍会继续监视，但是：
+1. 停止所有活动
+2. 对`SENTINEL is-master-down-by-addr`的请求，不在回复有效的信息
+
+若果30秒内恢复正常，则退出TILT模式。
