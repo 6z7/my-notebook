@@ -258,6 +258,16 @@ Get不会更新`vendor`中的目录
 
 `-parallel n`:并行数量
 
+`-run regexp`：运行匹配的test和example，多个正则使用"/"分割，-run=^$表示不执行任何测试
+
+`-benchmem`：打印基准测试中的内存信息
+
+`-cpuprofile cpu.out`： 测试结束后保存cpu信息到指定文件
+
+`-memprofile mem.out`：测试结束后保存内存分配信息到指定文件
+
+`-outputdir directory`：将profile保存到指定文件夹中，默认在go test的运行目录下
+
 
 
 以`_.go`和`_test.go`开头的文件会被编译器忽略
@@ -443,9 +453,24 @@ Go源文件中的编译器指令
 
 ### pprof
 
-`go tool pprof binary profile`
+生成指定格式的文件
 
-性能分析
+`pprof <format> [options] [binary] <source> ...`
+
+启动一个shell交互界面
+
+binary是应用的二进制文件，用来解析各种符号
+
+source 表示profile数据的来源，可以是本地的文件，也可以是http地址。
+
+`pprof [options] [binary] <source> ...`
+
+启动一个web服务,用于访问各种视图
+
+`pprof -http [host]:[port] [options] [binary] <source> ...`
+
+
+
 
 ### test2json
 
