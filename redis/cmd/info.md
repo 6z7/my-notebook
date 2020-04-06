@@ -1,0 +1,2 @@
+info server
+info cpu
