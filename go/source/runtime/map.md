@@ -426,7 +426,7 @@ func hashGrow(t *maptype, h *hmap) {
 
 ##  bucket迁移过程
 
-将属于当前bucket的kv从旧的bucket中迁移过来，如果扩容过程还在进行，则在多迁移一个bucket
+将属于当前bucket的kv从旧的bucket中迁移过来,完成后如果扩容过程还在进行，则在多迁移一个bucket
 
 ```go
 func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
@@ -435,6 +435,139 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 	 
 	if h.growing() {
 		evacuate_faststr(t, h, h.nevacuate)
+	}
+}
+```
+
+在bucket数组扩容一倍后，旧的bucket中的key，会分裂成两部分，对应迁移到不同的bucket中，其中一部分key迁移到新的buket数组后，其所属的bucket序号不变(和在旧的bucket中的序号一致)，另一部分key迁移到了新的buket数组后，序号发生了变换。
+
+旧的bucket和其溢出bucket迁移完成后，如果没有协程在使用旧bucket，就把旧bucket的k和溢出指针清除掉，帮助gc，只保留bucket的top hash部分用于指示迁移状态。
+
+```go
+// 迁移bucket
+func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
+	// key在旧的bucket数组中位置
+	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
+	// 旧的bucket大小
+	newbit := h.noldbuckets()
+	//  bucket是否已经被迁移
+	if !evacuated(b) {		
+		// x用于bucket序号没有变的迁移
+		// y用于bucket序号发生变化的迁移
+		// 扩容2倍后，bucket中的key会被分裂2个新的bucket中
+		var xy [2]evacDst
+		x := &xy[0]
+		// 旧的bucket迁移到新的bucket时 所在位置的指针
+		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.bucketsize)))
+		x.k = add(unsafe.Pointer(x.b), dataOffset)
+		x.e = add(x.k, bucketCnt*2*sys.PtrSize)
+
+		// 是否等量扩容
+		if !h.sameSizeGrow() {		
+			y := &xy[1]
+			// 容量变化 需要重新计算搬迁到的新bucket位置
+			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.bucketsize)))
+			y.k = add(unsafe.Pointer(y.b), dataOffset)
+			y.e = add(y.k, bucketCnt*2*sys.PtrSize)
+		}
+
+		// 遍历旧的bucket和它后边的溢出bucket
+		for ; b != nil; b = b.overflow(t) {
+			// 旧的bucket中的key
+			k := add(unsafe.Pointer(b), dataOffset)
+			// 旧的bucket中的value
+			e := add(k, bucketCnt*2*sys.PtrSize)
+			for i := 0; i < bucketCnt; i, k, e = i+1, add(k, 2*sys.PtrSize), add(e, uintptr(t.elemsize)) {
+				top := b.tophash[i]
+				//
+				if isEmpty(top) {
+					b.tophash[i] = evacuatedEmpty
+					continue
+				}
+				if top < minTopHash {
+					throw("bad map state")
+				}
+				var useY uint8
+				if !h.sameSizeGrow() {				
+					hash := t.hasher(k, uintptr(h.hash0))
+					// 判断key的在新旧bucket中的序号是否改变，从而分流到不同的迁移位置
+					if hash&newbit != 0 {
+						useY = 1
+					}
+				}
+                // 标记key的去向，迁移到新bucket的哪个部分
+				b.tophash[i] = evacuatedX + useY // evacuatedX + 1 == evacuatedY, enforced in makemap
+				// 迁移到的新bucket
+				dst := &xy[useY]                 // evacuation destination
+
+				// bucket已满 则新建一个溢出bucket
+				if dst.i == bucketCnt {
+					dst.b = h.newoverflow(t, dst.b)
+					dst.i = 0
+					dst.k = add(unsafe.Pointer(dst.b), dataOffset)
+					dst.e = add(dst.k, bucketCnt*2*sys.PtrSize)
+				}
+				dst.b.tophash[dst.i&(bucketCnt-1)] = top 
+				// Copy key.
+				*(*string)(dst.k) = *(*string)(k)
+                // 复制value到新的bucket
+				typedmemmove(t.elem, dst.e, e)
+				// 迁移数量+1
+				dst.i++
+				// 下一个key位置
+				dst.k = add(dst.k, 2*sys.PtrSize)
+				// 下一个value位置
+				dst.e = add(dst.e, uintptr(t.elemsize))
+			}
+		}	
+		// 旧的bucket迁移完成，如果没有协程在使用旧bucket，就把旧bucket清除掉，帮助gc
+		if h.flags&oldIterator == 0 && t.bucket.ptrdata != 0 {
+			b := add(h.oldbuckets, oldbucket*uintptr(t.bucketsize))
+			// Preserve b.tophash because the evacuation
+			// state is maintained there.
+			//kv位置
+			ptr := add(b, dataOffset)
+			//kv部分所占字节
+			n := uintptr(t.bucketsize) - dataOffset
+			// 只清除bucket 的 key,value 部分，保留 top hash 部分，指示搬迁状态
+			memclrHasPointers(ptr, n)
+		}
+	}
+
+	// 如果此次搬迁的bucket等于当前进度
+	if oldbucket == h.nevacuate {
+		advanceEvacuationMark(h, t, newbit)
+	}
+}
+```
+
+更新迁移的进度,当旧的bucket数组迁移完成后，清空数据
+
+```go
+// 更新迁移进度
+// newbit：旧bucket数组大小
+func advanceEvacuationMark(h *hmap, t *maptype, newbit uintptr) {
+	// 迁移进度+1
+	h.nevacuate++	 
+	// 尝试看看后边的1024个bucket是否迁移完毕
+	stop := h.nevacuate + 1024
+	if stop > newbit {
+		stop = newbit
+	}
+
+	// 遍历bucket 判断是否被迁移
+	for h.nevacuate != stop && bucketEvacuated(t, h, h.nevacuate) {
+		h.nevacuate++
+	}
+	// h.nevacuate 之前的 bucket 都被搬迁完毕
+
+    //所有的bucket搬迁完毕
+	if h.nevacuate == newbit {  	 
+		h.oldbuckets = nil	 
+		if h.extra != nil {
+			h.extra.oldoverflow = nil
+		}
+		h.flags &^= sameSizeGrow
 	}
 }
 ```
