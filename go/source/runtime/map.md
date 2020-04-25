@@ -1,5 +1,17 @@
 # map源码分析
 
+本文主要看以下几方面的内容：
+
+* map创建与使用的数据结构
+* 创建bucket数组
+* 赋值操作
+* 创建溢出bucket
+* 扩容
+* bucket迁移
+* 删除key
+* 遍历
+
+## map创建与使用的数据结构
 
 ```go
     // make(map[string]int, 3/*hint*/)
@@ -126,6 +138,9 @@ type mapextra struct {
 	nextOverflow *bmap
 }
 ```
+
+## 创建bucket数组
+
 分配bucket时，根据情况的不同，可能会预创建一些bucket备用，减少bucket不足造成频繁创建的问题
 ```go
 func makeBucketArray(t *maptype, b uint8, dirtyalloc unsafe.Pointer) (buckets unsafe.Pointer, nextOverflow *bmap) {
@@ -175,17 +190,20 @@ func makeBucketArray(t *maptype, b uint8, dirtyalloc unsafe.Pointer) (buckets un
 	return buckets, nextOverflow
 }
 ```
+![](../image/map_struct.png)
 
-## 赋值部分
+## 赋值操作
 
-`mapassign_faststr`
-`mapassign_fast64`
-`mapassign_fast64ptr`
-`mapassign_fast32`
-`mapassign_fast32ptr`
+编译器根据不同的类型调用不同的方法，主要有以下几种：
+
+`mapassign_faststr`  
+`mapassign_fast64`  
+`mapassign_fast64ptr`  
+`mapassign_fast32`  
+`mapassign_fast32ptr`  
 `mapassign`
 
-主要包括：
+赋值的大致流程：
 
 * 是否并发写
 * 计算key所属的bucket
@@ -325,7 +343,7 @@ done:
 }
 ```
 
-## 创建溢出bucket过程
+## 创建溢出bucket
 
 如果存在预分配的bucket，则先从预分配的bucket中获取一个bucket,反之在创建一个bucket，统计溢出bucket数量，在extra上保存创建的bucket指针
 
@@ -424,7 +442,7 @@ func hashGrow(t *maptype, h *hmap) {
 }
 ```
 
-##  bucket迁移过程
+##  bucket迁移
 
 将属于当前bucket的kv从旧的bucket中迁移过来,完成后如果扩容过程还在进行，则在多迁移一个bucket
 
@@ -442,6 +460,8 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 在bucket数组扩容一倍后，旧的bucket中的key，会分裂成两部分，对应迁移到不同的bucket中，其中一部分key迁移到新的buket数组后，其所属的bucket序号不变(和在旧的bucket中的序号一致)，另一部分key迁移到了新的buket数组后，序号发生了变换。
 
 旧的bucket和其溢出bucket迁移完成后，如果没有协程在使用旧bucket，就把旧bucket的k和溢出指针清除掉，帮助gc，只保留bucket的top hash部分用于指示迁移状态。
+
+满足被迁移的bucket序号等于迁移进度的条件，则更新迁移进度。根据这个条件基本上都是由于多进行一次迁移时触发的，因为第二次迁移时使用的bucket序号就是迁移进度。
 
 ```go
 // 迁移bucket
@@ -535,6 +555,7 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 	}
 
 	// 如果此次搬迁的bucket等于当前进度
+	// evacuate_faststr(t, h, h.nevacuate)触发	
 	if oldbucket == h.nevacuate {
 		advanceEvacuationMark(h, t, newbit)
 	}
@@ -569,5 +590,317 @@ func advanceEvacuationMark(h *hmap, t *maptype, newbit uintptr) {
 		}
 		h.flags &^= sameSizeGrow
 	}
+}
+```
+
+## 删除key
+
+key并没有被删除，只是进行了删除标记，后边就可以直接使用被删除key所在的cell了。
+
+删除的大致过程如下：
+
+* 找到key所属的bucket
+* 如果map在扩容，则迁移找到的bucket
+* 遍历bucket及其溢出bucket,找到key所处的cell
+* 清空kv，并对当前cell的对应位置的top hash进行删除标记emptyOne 
+* 删除的key位于最后一个cell处，如果当前bucket无溢出bucket或后边的已经被标记emptyRest，则从后往前进行emptyRest标记直到遇到未删除的key
+* 如果key所属cell的下一个cell被标记了emptyRest,也会从后往前进行标记
+
+emptyOne：标记当前cell被删除,后边可以使用了
+
+emptyRest：标记当前cell和其它的cell(包括溢出bucket中的)都已经被删除，通过这个标记，在查找key时，就可以知道不用在向后边遍历了。
+
+```go
+func mapdelete_faststr(t *maptype, h *hmap, ky string) {
+	if raceenabled && h != nil {
+		callerpc := getcallerpc()
+		racewritepc(unsafe.Pointer(h), callerpc, funcPC(mapdelete_faststr))
+	}
+	if h == nil || h.count == 0 {
+		return
+	}
+	if h.flags&hashWriting != 0 {
+		throw("concurrent map writes")
+	}
+
+	key := stringStructOf(&ky)
+	hash := t.hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
+	
+	h.flags ^= hashWriting
+
+	bucket := hash & bucketMask(h.B)
+	if h.growing() {
+		// 先进行迁移
+		growWork_faststr(t, h, bucket)
+	}
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
+	bOrig := b
+	top := tophash(hash)
+search:
+	for ; b != nil; b = b.overflow(t) {
+		for i, kptr := uintptr(0), b.keys(); i < bucketCnt; i, kptr = i+1, add(kptr, 2*sys.PtrSize) {
+			k := (*stringStruct)(kptr)
+			if k.len != key.len || b.tophash[i] != top {
+				continue
+			}
+			if k.str != key.str && !memequal(k.str, key.str, uintptr(key.len)) {
+				continue
+			}
+			// 清空k
+			k.str = nil
+			e := add(unsafe.Pointer(b), dataOffset+bucketCnt*2*sys.PtrSize+i*uintptr(t.elemsize))
+			// 清空v
+			if t.elem.ptrdata != 0 {
+				memclrHasPointers(e, t.elem.size)
+			} else {
+				memclrNoHeapPointers(e, t.elem.size)
+			}
+			// 标记
+			b.tophash[i] = emptyOne
+		
+			if i == bucketCnt-1 {
+				if b.overflow(t) != nil && b.overflow(t).tophash[0] != emptyRest {
+					goto notLast
+				}
+			} else {
+				if b.tophash[i+1] != emptyRest {
+					goto notLast
+				}
+			}
+			// 到这里说明 bucket i处和其后边的所有cell和溢出bucket中的key都已经被标记删除
+			// 从当前bucket的i处向前遍历直到遇到未被删除的key，这些被遍历的位置都可以标记为emptyRest(当前位置已经被删除且其后边也被删除了)
+			for {
+				b.tophash[i] = emptyRest
+				if i == 0 {
+					if b == bOrig {
+						break 
+					}					
+					c := b
+					// 找到当前bucket的前一个bucket
+					for b = bOrig; b.overflow(t) != c; b = b.overflow(t) {
+					}
+					i = bucketCnt - 1
+				} else {
+					i--
+				}
+				if b.tophash[i] != emptyOne {
+					break
+				}
+			}
+		notLast:
+			h.count--
+			break search
+		}
+	}
+
+	if h.flags&hashWriting == 0 {
+		throw("concurrent map writes")
+	}
+	h.flags &^= hashWriting
+}
+```
+
+## 遍历
+
+遍历map时,需要借助`hiter`数据结构来保存一些需要的信息，具体如下:
+
+```go
+// 迭代器结构
+type hiter struct {
+	// key
+	key         unsafe.Pointer 
+	// value
+	elem      
+	// map类型
+	t           *maptype
+	// map对象指针
+	h           *hmap
+	// bucket数组
+	buckets     unsafe.Pointer
+	// 当前遍历到的bucket
+	bptr        *bmap       
+	overflow    *[]*bmap 
+	oldoverflow *[]*bmap       
+	// 指向遍历开始的bucket
+	startBucket uintptr         
+	// bucket中开始遍历的位置
+	offset      uint8      
+	// bucket遍历到了末尾了，从头开始遍历
+	wrapped     bool         
+	//
+	B           uint8
+	// bucket数组中当前遍历到的位置，相对于起始bucket的位置
+	i           uint8
+	// 当前遍历到bucket的指针
+	bucket      uintptr
+	checkBucket uintptr
+}
+
+```
+
+遍历时，首先通过`mapiterinit`，随机选择开始的bucket和bucket中的哪个cell开始
+
+```go
+func mapiterinit(t *maptype, h *hmap, it *hiter) {
+	if raceenabled && h != nil {
+		callerpc := getcallerpc()
+		racereadpc(unsafe.Pointer(h), callerpc, funcPC(mapiterinit))
+	}
+
+	if h == nil || h.count == 0 {
+		return
+	}
+
+	if unsafe.Sizeof(hiter{})/sys.PtrSize != 12 {
+		throw("hash_iter size incorrect")
+	}
+	it.t = t
+	it.h = h
+	it.B = h.B
+	it.buckets = h.buckets
+	if t.bucket.ptrdata == 0 {		
+		h.createOverflow()
+		it.overflow = h.extra.overflow
+		it.oldoverflow = h.extra.oldoverflow
+	}
+
+	r := uintptr(fastrand())
+	if h.B > 31-bucketCntBits {
+		r += uintptr(fastrand()) << 31
+	}
+	// 随机确定遍历开始的位置
+	it.startBucket = r & bucketMask(h.B)
+	// 随机确定bucket中开始的位置
+	it.offset = uint8(r >> h.B & (bucketCnt - 1))
+
+	it.bucket = it.startBucket
+	
+	if old := h.flags; old&(iterator|oldIterator) != iterator|oldIterator {
+		atomic.Or8(&h.flags, iterator|oldIterator)
+	}
+
+	mapiternext(it)
+}
+
+```
+
+从随机选择的位置开始遍历，如果遍历时map的扩容还未完成且对应旧的bucket还未迁移完成，需要先去旧的bucket中找到应该迁移到新的bucket中的key，如果key还在迁移则从旧的bucket中访问，如果已经被迁移则从新的bucket中访问。
+
+```go
+func mapiternext(it *hiter) {
+	h := it.h
+	if raceenabled {
+		callerpc := getcallerpc()
+		racereadpc(unsafe.Pointer(h), callerpc, funcPC(mapiternext))
+	}
+	if h.flags&hashWriting != 0 {
+		throw("concurrent map iteration and map write")
+	}
+	// map类型
+	t := it.t
+	// 当前遍历到bucket的指针
+	bucket := it.bucket
+	// 当前遍历到的bucket
+	b := it.bptr
+	i := it.i
+	// 如果遍历的是旧的bucket则指向对应的新的bucket
+	// 旧bucket中的kv会迁移到2个新bucket中
+	checkBucket := it.checkBucket
+
+next:
+	if b == nil {  //第一次遍历 或 遍历新bucket
+		if bucket == it.startBucket && it.wrapped {
+			// end of iteration
+			it.key = nil
+			it.elem = nil
+			return
+		}
+		if h.growing() && it.B == h.B {		
+
+			// 迭代器是在扩容过程中启动的，尚未完成扩容。
+			oldbucket := bucket & it.h.oldbucketmask()
+			b = (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
+			// 旧的bucket是否已被迁移
+			if !evacuated(b) {
+				checkBucket = bucket
+			} else {
+				// 迁移完成 直接遍历新的bucket
+				b = (*bmap)(add(it.buckets, bucket*uintptr(t.bucketsize)))
+				checkBucket = noCheck
+			}
+		} else {
+			// 当前指针指向的bucket
+			b = (*bmap)(add(it.buckets, bucket*uintptr(t.bucketsize)))
+			checkBucket = noCheck
+		}
+		// 下一个bucket
+		bucket++
+		// bucket指针遍历到了数组末尾,重新从头开始
+		if bucket == bucketShift(it.B) {
+			bucket = 0
+			it.wrapped = true
+		}
+		i = 0
+	}
+	// 遍历当前bucket中的kv
+	for ; i < bucketCnt; i++ {
+		// key偏移
+		offi := (i + it.offset) & (bucketCnt - 1)
+		// 此处单元格空或已经迁移走
+		if isEmpty(b.tophash[offi]) || b.tophash[offi] == evacuatedEmpty {
+			// TODO: emptyRest is hard to use here, as we start iterating
+			// in the middle of a bucket. It's feasible, just tricky.
+			continue
+		}
+		// key
+		k := add(unsafe.Pointer(b), dataOffset+uintptr(offi)*uintptr(t.keysize))
+		if t.indirectkey() {
+			k = *((*unsafe.Pointer)(k))
+		}
+		//value
+		e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+uintptr(offi)*uintptr(t.elemsize))
+		if checkBucket != noCheck && !h.sameSizeGrow() {		
+			if t.reflexivekey() || t.key.equal(k, k) {			
+				hash := t.hasher(k, uintptr(h.hash0))
+				// 旧bucket中的kv会迁移到2个新的bucket中
+				// 此处判断当前旧bucket中的key是否应该迁移到这个新bucket中
+				if hash&bucketMask(it.B) != checkBucket {
+					continue
+				}
+			} else {				
+				if checkBucket>>(it.B-1) != uintptr(b.tophash[offi]&1) {
+					continue
+				}
+			}
+		}
+		// 还未被迁移
+		if (b.tophash[offi] != evacuatedX && b.tophash[offi] != evacuatedY) ||
+			!(t.reflexivekey() || t.key.equal(k, k)) {			
+			it.key = k
+			if t.indirectelem() {
+				e = *((*unsafe.Pointer)(e))
+			}
+			it.elem = e
+		} else {	
+			// 从新的bucket访问kv		
+			rk, re := mapaccessK(t, h, k)
+			if rk == nil {
+				continue
+			}
+			it.key = rk
+			it.elem = re
+		}
+		it.bucket = bucket
+		if it.bptr != b { 
+			it.bptr = b
+		}
+		it.i = i + 1
+		it.checkBucket = checkBucket
+		return
+	}
+	// 溢出bucket
+	b = b.overflow(t)
+	i = 0
+	goto next
 }
 ```
