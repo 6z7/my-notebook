@@ -301,6 +301,18 @@ bucketloop:
 		}
 		b = ovf
 	}
+
+
+// hash key的高8位
+func tophash(hash uintptr) uint8 {
+	top := uint8(hash >> (sys.PtrSize*8 - 8))
+	// 如果前8位值小于minTopHash
+	if top < minTopHash {
+		top += minTopHash
+	}
+	return top
+}
+
  ```   
  
 bucket和其溢出bucket遍历完成后，如果加上当前要新增的key满足扩容条件，则先进行扩容，等扩容完成后在重新寻找key的位置，如下
@@ -459,7 +471,7 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 
 在bucket数组扩容一倍后，旧的bucket中的key，会分裂成两部分，对应迁移到不同的bucket中，其中一部分key迁移到新的buket数组后，其所属的bucket序号不变(和在旧的bucket中的序号一致)，另一部分key迁移到了新的buket数组后，序号发生了变换。
 
-旧的bucket和其溢出bucket迁移完成后，如果没有协程在使用旧bucket，就把旧bucket的k和溢出指针清除掉，帮助gc，只保留bucket的top hash部分用于指示迁移状态。
+旧的bucket和其溢出bucket迁移完成后，如果没有协程在使用旧bucket，就把旧bucket的kv和溢出指针清除掉，帮助gc，只保留bucket的top hash部分用于指示迁移状态。
 
 满足被迁移的bucket序号等于迁移进度的条件，则更新迁移进度。根据这个条件基本上都是由于多进行一次迁移时触发的，因为第二次迁移时使用的bucket序号就是迁移进度。
 
@@ -904,3 +916,15 @@ next:
 	goto next
 }
 ```
+
+## 总结
+
+每次创建bucket数组时，都会预分配一些bucket，供创建溢出bucket时直接使用。
+
+每个bucket都是一个bmap结构，每个bucket只能存储8个kv，bmap的前8位存储key的高8位称为top hash，用于快速判断key是否相等，后边是8个k1..k8和v1..v8以及一个溢出指针，top hash还用作标识位，标识key是否被删除、被迁移等状态。
+
+map扩容分为2种：扩容2倍和容量大小不变的扩容，后者主要用于清理被标记删除的key所占的空间;双倍扩容时，旧bucket中的key会分流到不同的2个新bucket中。
+
+当删除末尾bucket中的最后一个key或删除key的下一位被标记了emptyRest,则会从后往前标记被删除的key为emptyRest直到遇到未被删除的key为止。
+
+遍历map时会随机选择一个bucket和bucket中的位置开始，如果遍历时扩容还未完成，那么遍历bucket时需要判断对应旧的bucket是否迁移完成，如果还未迁移完成，则需要去旧的bucket中遍历会迁移到当前bucket中的key,如果key已经被迁移则从新的bucket中获取，否则从旧的bucket中获取。
