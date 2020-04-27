@@ -18,7 +18,7 @@ maxmemory 100mb
 
 当达到指定的最大内存时，可以在称为策略的不同行为之间进行选择。 Redis可能会对使用使用更多内存的命令返回错误，或者它可以逐出某些旧数据，以便在每次添加新数据时满足内存限制。
 
-## 驱逐政策
+## 驱逐策略
 
 当使用了`maxmemory-policy`配置指令，在达到最大内存限制时，redis会按照配置进行处理。
 
@@ -26,7 +26,7 @@ maxmemory 100mb
 
 * noeviction:当达到内存限制并且客户端尝试执行可能导致使用更多内存的命令时，返回错误
 
-* allkeys-lru:通过尝试先删除较不常用的(LRU)键来为添加的新数据腾出空间。
+* allkeys-lru:通过lru算法尝试先删除较不常用的键(包括没有超时属性的和具有超时属性的)来为添加的新数据腾出空间。
 
 * volatile-lru:通过尝试删除带有过期时间的较不常用的(LRU)键来为添加的新数据腾出空间。
 
@@ -34,7 +34,7 @@ maxmemory 100mb
 
 * volatile-random:随机删除带有过期时间的key
 
-* volatile-ttl:删除带有过期时间的key，有限移除ttl短的key
+* volatile-ttl:删除带有过期时间的key，优先移除ttl短的key
 
 如果没有满足驱逐条件的key，那么volatile-lru, volatile-random和volatile-ttl将变得和noeviction策略一样。
 
