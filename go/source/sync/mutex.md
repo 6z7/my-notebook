@@ -1,41 +1,39 @@
-先看下要用到的数据结构与常变定义
-    
-    //互斥锁
-    //g通过竞争获取mutex状态的修改所有权，所有g阻塞在信号量的队列上，
-    //当unlock后排在队列头部的g会与新的g竞争所有权(即唤醒的g不一定能够获取到mutex的所有权)，
-    //当g被唤醒后如果等待时间大于1ms,则mutex状态会被标记为饥饿状态,
-    //如果当前获取锁的g处于饥饿状态,则新的g不会自旋,并将当前g放到队列的首位，下次唤醒直接执行该g
-    //
+# mutex
+
+muxte是互斥锁的实现，用于不同协程间的同步。
+
+g通过竞争获取mutex状态的修改所有权，所有其它g阻塞在信号量的队列上。
+当unlock后排在队列头部的g会与新的g竞争所有权(即唤醒的g不一定能够获取到mutex的所有权)，当g被唤醒后如果等待时间大于1ms,则mutex状态会被标记为饥饿状态,如果当前获取锁的g处于饥饿状态,则新的g不会自旋而是直接放入信号队列进行挂起,并将当前g放到队列的首位，下次唤醒直接执行该g。
+
+互斥锁2种模式：正常模式，饥饿模式
+
+正常模式下waiter按照FIFO顺序排队，唤醒时会与新的goroutine竞争mutex,新的goroutine因为已经在CPU上运行会比新唤醒的goroutine更有优势获取到mutex,在这种情况下，如果waiter等待获取mutex超过1ms，则将该waiter放到队列的前面，同时锁状态切换到饥饿模式。
+
+饥饿模式下，mutex的所有权直接从unlock goruntine交到队列头部的waiter。新的goroutine直接排到队列的尾部，不会尝试获mutex。如果waiter获取到mutex的后满足以下情况，则恢复到正常模式：  
+	1.队列中最后一个waiter  
+	2.获取Mutex的时间小于1ms
+
+下要用到的数据结构与状态标识
+
+```go    
+    //互斥锁    
     type Mutex struct {
         //互斥锁状态
-        //向移动3位置表示等待获取锁的goroutine数量
+        //向右移动3位置表示等待获取锁的goroutine数量
         state int32
         //信号量
         sema uint32
     }
 
-
     const (
-	//已获取锁1
+	//1：已获取到锁
 	mutexLocked = 1 << iota // mutex is locked
-	//已释放锁2
+	//2：已释放获取的锁
 	mutexWoken
-	//饥饿模式(排在前边的go协程一直未获取到锁)2^2
+	//4：饥饿模式(排在前边的go协程一直未获取到锁)
 	mutexStarving
 	//3 表示mutex.state右移3位后即为等待的goroutine的数量
-	mutexWaiterShift = iota
-
-	//互斥锁2种模式：正常模式，饥饿模式
-	//正常模式下waiter按照FIFO顺序排队，但是唤醒时会与新的goroutine竞争mutex,
-	//新的goroutine应为已经在CPU上运行会比新唤醒的goroutine更有优势获取到mutex,
-	//在这种情况下，如果waiter等待获取mutex超过1ms，则将该waiter放到队列的前面，同时锁状态切换到饥饿模式。
-	//
-	// 饥饿模式下，mutex的所有权直接从unlock goruntine交到队列头部的waiter。
-    // 新的goroutine直接排到队列的尾部，不会尝试获mutex。
-	//
-	// 如果waiter获取到mutex的后满足以下情况，则恢复到正常模式：
-	// 1.队列中最后一个waiter
-	// 2.获取Mutex的时间小于1ms
+	mutexWaiterShift = iota	
 	 
 	//切换到饥饿模式的阀值1ms
 	starvationThresholdNs = 1e6
@@ -46,11 +44,35 @@
 	    Lock()
 	    Unlock()
     }
+ ```   
 
 ## Lock
 
-获取锁
+获取锁:
 
+1. 通过CAS尝试快速获取锁
+
+2. 如果锁已经被其它g获取，则尝试自旋(饥饿状态就不用自旋了)，看看能不能直接进入唤醒状态，在获取锁(g被唤醒后才能去竞争锁)，如果锁处于唤醒状态，unlock时不会在唤醒其它挂起的g
+
+3. 根据目前锁的状态计算当前g获取锁时应该持有的状态
+    - 如果目前锁处于非饥饿模式，则g可以去抢锁
+    - 锁已经被获取，当前g只能等待，等待的g数量+1
+    - 如果当前g挂起时间超过了阀值，则添加mutexStarving标记，这样下次可以优先被唤醒
+    - 移除唤醒标记mutexWoken，mutexWoken用于
+
+4. CAS修改锁的状态为新计算出来的状态
+
+5. 如果修改失败，从第2步重新开始
+
+6. 如果更前锁的状态不是mutexWoken也不是mutexLocked(说明锁上有唤醒标记或锁就没有被其它g获取)，说明当前g可以直接获取到锁,直接跳转到
+
+7. 挂起当前g,根据当前g获取锁的等待时间是否超过了饥饿阀值，确定是否放入信号量队列的头部
+
+8. g被唤醒，如果锁处于
+
+>唤醒状态：当前g通过自旋获取到了唤醒标记并且在自旋期间其它g释放了锁
+
+```go
     func (m *Mutex) Lock() {
         // Fast path: grab unlocked mutex.
         if atomic.CompareAndSwapInt32(&m.state, 0, mutexLocked) {
@@ -76,7 +98,7 @@
         old := m.state
         for {
             // 如果是饥饿情况，无需自旋
-            // 如果其它g获取到了锁，则当前g尝试自旋获取锁            
+            // 如果其它g获取到了锁，则当前g尝试自旋获取锁 
             if old&(mutexLocked|mutexStarving) == mutexLocked && runtime_canSpin(iter) { 
                 //old>>mutexWaiterShift 锁上等待的goroutine数量
                 //锁的状态设置为唤醒，这样当Unlock的时候就不会去唤醒其它被阻塞的goroutine了
@@ -96,8 +118,7 @@
 
             //复制一份最新锁状态，用来存放期望的锁状态
             new := old
-
-            // Don't try to acquire starving mutex, new arriving goroutines must queue.
+            
             if old&mutexStarving == 0 {
                 //非饥饿模式下，可以抢锁
                 new |= mutexLocked
@@ -176,11 +197,19 @@
             }
         }
     }
+```
 
 ## Unlock
 
-释放锁
+释放锁:
 
+1. 修改锁的状态移除mutexLocked标记，然后看看是否有其它g需要唤醒
+
+2. 如果处于饥饿状态，则直接唤醒信号队列头部的g
+
+>多次调用Unlock操作会panic
+
+```go
     func (m *Mutex) Unlock() {
        
         // 这里获取到锁的状态，然后将状态减去被获取的状态(也就是解锁)，称为new(期望)状态
@@ -228,5 +257,5 @@
             runtime_Semrelease(&m.sema, true, 1)
         }
     }
-
+```
 
