@@ -1,6 +1,6 @@
 ## go汇编
 
-go使用的是类似Plan9风格的汇编，是一种半抽象的汇编，需要经过编译器翻译成不同平台上的指令
+go使用的是类似Plan9风格的汇编,它不是对机器语言的直接表达,而是一种半抽象的指令集，需要经过编译器翻译成不同平台上的指令
 
 
 ```go
@@ -67,6 +67,7 @@ TEXT main.main(SB) /tmp/x.go
   x.go:3		0x1050203		e83882ffff		CALL runtime.morestack_noctxt(SB)
   x.go:3		0x1050208		ebb6			JMP main.main(SB)
 ```
+## Symbols
 
 go汇编中定义了4个伪寄存器:
 
@@ -97,9 +98,139 @@ label:
 	JMP label
 ```
 
-每个label仅仅在所定义的函数内部可见，因此同一个文件中的不同函数中使用相同的lable是允许的。直接跳转和调用指令可以使用name(SB)，但不能带偏移的方式，如name+4(SB)。
+每个label仅仅在所定义的函数内部可见，因此同一个文件中的不同函数中使用相同的lable是允许的。直接跳转和调用指令可以使用name(SB)，但不能用带偏移的方式，如name+4(SB)。
 
-https://golang.org/doc/asm
+指令、寄存器和汇编程序指令总是大写。
+
+在Go对象文件和二进制文件中，符号的全名是包路径，后跟句点和符号名：`fmt.Printf`或`math/rand.Int`。因为汇编器的解析器将句点(.)和斜杠(/)视为标点符号，所以这些字符串不能直接用作标识符名称。汇编程序允许在标识符中使用中间点字符U+00B7(·)和除法斜线U+2215(∕)，并将它们重写为句点和斜线。在汇编源文件中，上述符号需要写成`fmt·Printf`和 `math∕rand·Int`。使用`go tool compile -S`输出汇编代码时，显示的是替换后的句点和斜线符号。
+
+大多数手写的汇编原文件中的符号名中不包含完整的路径，因为链接器在以句点开头的任何名称的开头插入当前对象文件的包路径：在math/rand包实现中的汇编源文件中，包中的Int函数可以通过`.Int`方式被引用。此约定避免了在包的源代码中硬编码包的导入路径，从而使代码从一个位置移动到另一个位置更加容易。
+
+## 指令(Directives)
+
+汇编程序使用各种指令将文本和数据绑定到符号名。例如，这里有一个简单的完整函数定义。`Text`指令声明符号runtime·profileloop和函数体后面的指令。Text部分的最后一个指令必须是某种跳转，通常是一个RET(伪)指令。符号后边，就是参数标识、帧大小和一个常量。
+
+```
+TEXT runtime·profileloop(SB),NOSPLIT,$8
+	MOVQ	$runtime·profileloop1(SB), CX
+	MOVQ	CX, 0(SP)
+	CALL	runtime·externalthreadhandler(SB)
+	RET
+```
+
+通常，在帧大小后边跟着一个参数大小，用减号`-`分割。帧大小$24-8表示函数有一个24字节的帧，并用8字节的参数调用，这些参数位于调用方的帧上。如果`Text`中没有指定`NOSPLIT`，参数大小必须提供。`go vet`会检查。
+
+符号名使用中间点来分隔，并指定与静态基址伪寄存器SB的偏移量。将调用go源码下的runtime包中的profileloop函数。
+
+全局数据符号由一系列`DATA`指令和一个`GLOBL指令`定义。每个`DATA`指令初始化相应内存的一部分。未显式初始化的内存为零。`DATA`指令的一般形式:
+
+`DATA	symbol+offset(SB)/width, value`
+
+将符号内存从指定偏移处到指定宽度的这段范围初始化为指定的值。
+
+`GLOBAL`指令声明一个全局符号。形式：`GLOBL symbol(SB), FLAG, width`其中flag标示是可选的，width指定符号的大小(多少字节)。符号的默认值是0，可以使用DATA指令初始化。例如：
+```
+DATA divtab<>+0x00(SB)/4, $0xf4f8fcff
+DATA divtab<>+0x04(SB)/4, $0xe6eaedf0
+...
+DATA divtab<>+0x3c(SB)/4, $0x81828384
+GLOBL divtab<>(SB), RODATA, $64
+
+GLOBL runtime·tlsoffset(SB), NOPTR, $4
+```
+声明并初始化了divtab<>符号, 一个只读的64字节表，每一项4字节的整数值，声明了runtime·tlsoffset符号，4字节空值，非指针。
+
+GLOBL指令可以有一个或两个参数。如果有两个参数，则第一个是bit mask(位掩码)。这些标识定义在头文件`textflag.h`中。
+
+* NOPROF=1
+
+	已经废弃不用
+* DUPRK=2
+
+	同一个文件中包含多个相同的符号，链接器选择其中一个使用
+* NOSPLIT = 4
+    
+	用于TEXT指令中。无需插入函数序言进行检查是否需要进行栈分裂
+* RODATA = 8	
+
+	用于DATA和GLOBL指令，声明将数据放入只读段
+* NOPTR = 16	
+
+	用于DATA和GLOBL指令,数据不包含指针，因此gc时不需要扫描
+* WRAPPER = 32
+
+	(For TEXT items.) This is a wrapper function and should not count as disabling recover.
+* NEEDCTXT = 64
+
+	用于TEXT指令，函数是一个闭包，需要使用上下文寄存器
+
+## Runtime Coordination 
+
+为了gc正常进行，runtime必须知道全局数据中指针的位置。Go编译器在编译源码时记录这些信息，但是汇编必须显示定义出来。
+
+NOPTR标记的数据符号被认为不包含指针数据。带有RODATA标志的数据符号被分配到只读存储器中，因此被视为隐式标记NOPTR。总大小小于指针的数据符号也被视为隐式标记的NOPTR。无法在汇编源文件中定义包含指针的符号，这样的符号必须在Go源文件中定义。
+
+每个函数都需要写明在参数、结果和栈帧中使用到的指针位置。汇编中函数的名称不能包含包的名称，如syscall包中的函数Sysall，在汇编中应使用`·Syscall`的方式调用，而不是`syscall·Syscall`的方式。更复杂的场景，需要使用`funcdata.h`头文件中的伪指令进行处理。
+
+## Architecture-specific details
+
+g的运行时指针通过MMU中未使用的寄存器实现。如果源位于runtime包中，并且包含一个特殊的头`go-tls.h`，则为汇编程序定义一个依赖于操作系统的宏get-tls：
+
+`#include "go_tls.h"`
+
+在runtime中，get_tls宏用于获取g的指针，g的结构中也包含m的指针。`go_asm.h`头文件中包含g结构中每个元素的偏移位置。下面是一个，使用CX加载g和m的例子:
+
+```
+#include "go_tls.h"
+#include "go_asm.h"
+...
+get_tls(CX)
+MOVL	g(CX), AX     // Move g into AX.
+MOVL	g_m(AX), BX   // Move g.m into BX.
+```
+
+寻址方式:
+
+* (DI)(BX*2):DI地址+BX\*2
+* 64(DI)(BX*2):DI地址+BX\*2+64。这种方式1、2、4、8作为比例因子
+
+go编译器和链接器会保留寄存器，用作保存当前g。
+
+https://golang.org/doc/asm#architectures
+
+
+
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
