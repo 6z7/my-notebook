@@ -71,7 +71,7 @@ TEXT main.main(SB) /tmp/x.go
 
 go汇编中定义了4个伪寄存器:
 
-* FP(Frame pointer): arguments and locals
+* FP(Frame pointer): arguments and locals(局部数据、输入参数、返回值)
 * PC(Program counter): jumps and branches
 * SB(Static base pointer):global symbols
 * SP(Stack pointer): top of stack
@@ -138,7 +138,7 @@ GLOBL divtab<>(SB), RODATA, $64
 
 GLOBL runtime·tlsoffset(SB), NOPTR, $4
 ```
-声明并初始化了divtab<>符号, 一个只读的64字节表，每一项4字节的整数值，声明了runtime·tlsoffset符号，4字节空值，非指针。
+声明并初始化了divtab<>符号, 一个只读的64字节表，每一项4字节的整数值，声明了runtime·tlsoffset符号，4字节空值，非指针。`<>`符号说明全局变量只在当前文件可见。
 
 GLOBL指令可以有一个或两个参数。如果有两个参数，则第一个是bit mask(位掩码)。这些标识定义在头文件`textflag.h`中。
 
@@ -189,21 +189,88 @@ MOVL	g(CX), AX     // Move g into AX.
 MOVL	g_m(AX), BX   // Move g.m into BX.
 ```
 
+go编译器为了方便汇编中访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件，该文件包含全部struct的每个字段偏移的宏定义。
+
 寻址方式:
 
-* (DI)(BX*2):DI地址+BX\*2
-* 64(DI)(BX*2):DI地址+BX\*2+64。这种方式1、2、4、8作为比例因子
+* (DI)(BX*2):DI+BX\*2
+* 64(DI)(BX*2):DI+BX\*2+64
+
+
 
 go编译器和链接器会保留寄存器，用作保存当前g。
 
-https://golang.org/doc/asm#architectures
+---
+函数在go汇编中的表示形式
+
+![](./asset/asm_func.png)
+
+如果函数属于当前包中包名可以省略，如果函数汇编中有`NOSPLIT`标志省略输入参数与返回值展会用的大小。$0-16说明函数栈大小为0字节，函数栈计算包括:局部变量、当前函数调用其它函数时传参数所需的空间，16表示当前函数的参数和返回值总共16字节。函数的
+
+
+```
+func zzz(a, b, c int) [3]int{
+	var d [3]int
+	d[0], d[1], d[2] = a, b, c
+	return d
+}
+
+高地址位
+          ┼───────────┼
+          │  返回值g   │
+          ┼───────────┼
+          │  返回值f   │
+          ┼───────────┼
+          │  返回值e   │
+          ┼───────────┼
+          │  参数之c   │
+          ┼───────────┼
+          │  参数之b   │
+          ┼───────────┼
+          │  参数之a   │
+          ┼───────────┼    <-- 伪FP
+          │ 函数返回地址│
+          ┼───────────┼
+          │ CALLER BP │
+          ┼───────────┼    <-- 伪SP
+          │  变量之[2] │    <-- d0-8(SP)
+          ┼───────────┼
+          │  变量之[1] │    <-- d1-16(SP)
+          ┼───────────┼
+          │  变量之[0] │    <-- d2-24(SP)
+          ┼───────────┼    <-- 硬件SP
+低地址位
+
+#include "textflag.h"
+
+TEXT ·zzz(SB),NOSPLIT,$24-48    // $24值栈空间24byte，- 后面的48跟上面的含义一样，
+                                // 在编译后，栈空间会被+8用于存储BP寄存器，这步骤由编译器自动添加
+   MOVQ    $0, d-24(SP)         // 初始化d[0]
+   MOVQ    $0, d-16(SP)         // 初始化d[1]
+   MOVQ    $0, d-8(SP)          // 初始化d[2]
+   MOVQ    a+0(FP), AX          // d[0] = a
+   MOVQ    AX, d-24(SP)         //
+   MOVQ    b+8(FP), AX          // d[1] = b
+   MOVQ    AX, d-16(SP)         //
+   MOVQ    c+16(FP), AX         // d[2] = c
+   MOVQ    AX, d-8(SP)          //
+   MOVQ    d-24(SP), AX         // d[0] = return [0]
+   MOVQ    AX, r+24(FP)         //
+   MOVQ    d-16(SP), AX         // d[1] = return [1]
+   MOVQ    AX, r+32(FP)         //
+   MOVQ    d-8(SP), AX          // d[2] = return [2]
+   MOVQ    AX, r+40(FP)         //
+   RET                          // return
+```
+
+go编译器会将函数栈空间自动加8，用于存储BP寄存器，跳过这8字节后才是函数栈上局部变量的内存。函数返回地址使用的是调用者的栈空间，CALLER BP由编辑器“透明”插入，因此，不算在当前函数的栈空间内
 
 
 
+## 参考:
 
-
-
-
+1. [golang 汇编](https://lrita.github.io/2017/12/12/golang-asm/)
+2. [go asm](https://golang.org/doc/asm)
 	
 
 
