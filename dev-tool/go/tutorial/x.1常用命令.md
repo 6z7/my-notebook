@@ -441,7 +441,7 @@ Go源文件中的编译器指令
 
 `go tool objdump [-s symregexp] binary`
 
-反汇编，输出所有的符号
+反汇编(go汇编)，输出所有的符号
 
 `-s symregexp`:仅输出满足条件的符号
 

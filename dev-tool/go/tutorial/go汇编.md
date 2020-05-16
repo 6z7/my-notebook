@@ -1,112 +1,149 @@
-## go汇编
+# go汇编
 
-go使用的是类似Plan9风格的汇编,它不是对机器语言的直接表达,而是一种半抽象的指令集，需要经过编译器翻译成不同平台上的指令
+go使用的是类似Plan9风格的汇编,它不是对机器语言的直接表达,而是一种半抽象的指令集，需要经过汇编器器翻译成不同平台上的指令
 
+## 获取go代码对应的汇编的方式:
+
+* go tool compile -N -L -S  demo.go
+* go build -gcflags="-N -L -S"  demo.go
+* go tool objdump(反汇编二进制文件，需要先使用go build生成)
 
 ```go
-$ cat x.go
-package main
+func zzz(a int) [1]int{
+  var d [1]int
+  d[0]= a
+  return d
+}
 
 func main() {
-	println(3)
+  m1:=1
+  m2:=2
+  zzz(m1+m2)
 }
 ```
 对应的go汇编代码
-```go
-$ GOOS=linux GOARCH=amd64 go tool compile -S x.go        # or: go build -gcflags -S x.go
-"".main STEXT size=74 args=0x0 locals=0x10
-	0x0000 00000 (x.go:3)	TEXT	"".main(SB), $16-0
-	0x0000 00000 (x.go:3)	MOVQ	(TLS), CX
-	0x0009 00009 (x.go:3)	CMPQ	SP, 16(CX)
-	0x000d 00013 (x.go:3)	JLS	67
-	0x000f 00015 (x.go:3)	SUBQ	$16, SP
-	0x0013 00019 (x.go:3)	MOVQ	BP, 8(SP)
-	0x0018 00024 (x.go:3)	LEAQ	8(SP), BP
-	0x001d 00029 (x.go:3)	FUNCDATA	$0, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
-	0x001d 00029 (x.go:3)	FUNCDATA	$1, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
-	0x001d 00029 (x.go:3)	FUNCDATA	$2, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
-	0x001d 00029 (x.go:4)	PCDATA	$0, $0
-	0x001d 00029 (x.go:4)	PCDATA	$1, $0
-	0x001d 00029 (x.go:4)	CALL	runtime.printlock(SB)
-	0x0022 00034 (x.go:4)	MOVQ	$3, (SP)
-	0x002a 00042 (x.go:4)	CALL	runtime.printint(SB)
-	0x002f 00047 (x.go:4)	CALL	runtime.printnl(SB)
-	0x0034 00052 (x.go:4)	CALL	runtime.printunlock(SB)
-	0x0039 00057 (x.go:5)	MOVQ	8(SP), BP
-	0x003e 00062 (x.go:5)	ADDQ	$16, SP
-	0x0042 00066 (x.go:5)	RET
-	0x0043 00067 (x.go:5)	NOP
-	0x0043 00067 (x.go:3)	PCDATA	$1, $-1
-	0x0043 00067 (x.go:3)	PCDATA	$0, $-1
-	0x0043 00067 (x.go:3)	CALL	runtime.morestack_noctxt(SB)
-	0x0048 00072 (x.go:3)	JMP	0
-...
+```
+ "".zzz STEXT nosplit size=55 args=0x10 locals=0x10
+    // 16-16:栈帧空间大小16字节-函数参数加返回值共16字节
+    // 栈帧空间=BP(8字节)+本地变量d(8字节)
+	0x0000 00000 (demo.go:9)	TEXT	"".zzz(SB), NOSPLIT|ABIInternal, $16-16
+	0x0000 00000 (demo.go:9)	SUBQ	$16, SP
+	0x0004 00004 (demo.go:9)	MOVQ	BP, 8(SP)
+	0x0009 00009 (demo.go:9)	LEAQ	8(SP), BP
+	0x000e 00014 (demo.go:9)	FUNCDATA	$0, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x000e 00014 (demo.go:9)	FUNCDATA	$1, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x000e 00014 (demo.go:9)	FUNCDATA	$2, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x000e 00014 (demo.go:9)	PCDATA	$0, $0
+	0x000e 00014 (demo.go:9)	PCDATA	$1, $0
+	// 初始化返回值为0,反编译的汇编中的寄存器都是硬件寄存器不管有没有符号
+	0x000e 00014 (demo.go:9)	MOVQ	$0, "".~r1+32(SP)
+	// 本地变量d初始化为0
+	0x0017 00023 (demo.go:10)	MOVQ	$0, "".d(SP)
+	// 将参数a赋值给AX
+	0x001f 00031 (demo.go:11)	MOVQ	"".a+24(SP), AX
+	// 本地变量d=参数a的值
+	0x0024 00036 (demo.go:11)	MOVQ	AX, "".d(SP)
+	// 给返回值字段赋值
+	0x0028 00040 (demo.go:12)	MOVQ	AX, "".~r1+32(SP)
+	// 恢复BP
+	0x002d 00045 (demo.go:12)	MOVQ	8(SP), BP
+	// 收回分配的栈帧空间
+	0x0032 00050 (demo.go:12)	ADDQ	$16, SP
+	0x0036 00054 (demo.go:12)	RET
+	
+"".main STEXT size=82 args=0x0 locals=0x28
+    // 40-0:函数所需栈帧空间-函数参数+返回值所占字节数
+    // 栈帧空间=BP(8字节)+本地变量(m1,m2共16字节)+被动用函数的参数(8字节)+被调用函数的返回值(8字节)
+	0x0000 00000 (demo.go:15)	TEXT	"".main(SB), ABIInternal, $40-0
+	// CX=g
+	0x0000 00000 (demo.go:15)	MOVQ	(TLS), CX
+	// 16(CX)=g.stack.lo g使用的栈的栈底
+	0x0009 00009 (demo.go:15)	CMPQ	SP, 16(CX)
+    // 如果SP地址<g0.stack.lo地址，即栈寄存器地址超过了g可使用的栈的范围
+    // 跳转到75偏移处
+	0x000d 00013 (demo.go:15)	JLS	75
+	// SP=SP-24  SP指针往下移开辟40字节的空间
+	0x000f 00015 (demo.go:15)	SUBQ	$40, SP
+	// 保存BP寄存器的值到SP+32处
+    // BP中保存的是上一个函数的栈帧的起始位置
+	0x0013 00019 (demo.go:15)	MOVQ	BP, 32(SP)
+	// BP=sp+32 保存当前函数栈帧的起始位置到BP
+	0x0018 00024 (demo.go:15)	LEAQ	32(SP), BP
+	0x001d 00029 (demo.go:15)	FUNCDATA	$0, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x001d 00029 (demo.go:15)	FUNCDATA	$1, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x001d 00029 (demo.go:15)	FUNCDATA	$2, gclocals·33cdeccccebe80329f1fdbee7f5874cb(SB)
+	0x001d 00029 (demo.go:16)	PCDATA	$0, $0
+	0x001d 00029 (demo.go:16)	PCDATA	$1, $0
+	0x001d 00029 (demo.go:16)	MOVQ	$1, "".m1+24(SP)
+	0x0026 00038 (demo.go:17)	MOVQ	$2, "".m2+16(SP)
+	0x002f 00047 (demo.go:18)	MOVQ	"".m1+24(SP), AX
+	// AX=1+2
+	0x0034 00052 (demo.go:18)	ADDQ	$2, AX
+	// AX保存的当前函数栈帧的栈顶
+	0x0038 00056 (demo.go:18)	MOVQ	AX, (SP)
+	0x003c 00060 (demo.go:18)	CALL	"".zzz(SB)
+	// 恢复BP
+	0x0041 00065 (demo.go:19)	MOVQ	32(SP), BP
+	// 收回分配的栈帧空间
+	0x0046 00070 (demo.go:19)	ADDQ	$40, SP
+	0x004a 00074 (demo.go:19)	RET
+	0x004b 00075 (demo.go:19)	NOP
+	0x004b 00075 (demo.go:15)	PCDATA	$1, $-1
+	0x004b 00075 (demo.go:15)	PCDATA	$0, $-1
+	0x004b 00075 (demo.go:15)	CALL	runtime.morestack_noctxt(SB)
+	0x0050 00080 (demo.go:15)	JMP	0
 ```
 
 `FUNCDATA`和`PCDATA`指令包含gc时需要的信息，是由编译器生成的。
 
-反汇编生成后的可执行文件得到的汇编代码:
-```go
-$ go build -o x.exe x.go
-$ go tool objdump -s main.main x.exe
-TEXT main.main(SB) /tmp/x.go
-  x.go:3		0x10501c0		65488b0c2530000000	MOVQ GS:0x30, CX
-  x.go:3		0x10501c9		483b6110		CMPQ 0x10(CX), SP
-  x.go:3		0x10501cd		7634			JBE 0x1050203
-  x.go:3		0x10501cf		4883ec10		SUBQ $0x10, SP
-  x.go:3		0x10501d3		48896c2408		MOVQ BP, 0x8(SP)
-  x.go:3		0x10501d8		488d6c2408		LEAQ 0x8(SP), BP
-  x.go:4		0x10501dd		e86e45fdff		CALL runtime.printlock(SB)
-  x.go:4		0x10501e2		48c7042403000000	MOVQ $0x3, 0(SP)
-  x.go:4		0x10501ea		e8e14cfdff		CALL runtime.printint(SB)
-  x.go:4		0x10501ef		e8ec47fdff		CALL runtime.printnl(SB)
-  x.go:4		0x10501f4		e8d745fdff		CALL runtime.printunlock(SB)
-  x.go:5		0x10501f9		488b6c2408		MOVQ 0x8(SP), BP
-  x.go:5		0x10501fe		4883c410		ADDQ $0x10, SP
-  x.go:5		0x1050202		c3			RET
-  x.go:3		0x1050203		e83882ffff		CALL runtime.morestack_noctxt(SB)
-  x.go:3		0x1050208		ebb6			JMP main.main(SB)
-```
-## Symbols
+
+## 常用指令
+
+| 助记符 | 用途           | 举例                                                         |
+| ------ | -------------- | ------------------------------------------------------------ |
+| MOVQ   | 数据传送(8字节)       | `MOVQ AX,BX` 将AX的值赋给BX，如果AX是一个地址，则传递实际指向的值(解引用)|
+| MOVL   | 数据传送(4字节)       | 同上|
+| MOVB   | 数据传送(1字节)       | 同上|
+| LEAQ   | 地址传送       | `LEAQ AX,BX` 将AX的值赋给BX |  
+| SUBQ   | 相减并赋值     | `ADDQ BX, AX`  ,AX=AX-BX                                     |
+| ADDQ   | 相加并赋值     | `ADDQ BX, AX` ,AX=AX+BX                                      |
+| JMP    | 无条件转移指令 | `JMP 389`无条件转至0x0185地址处(十进制389转换成十六进制0x0185) |
+| JLS    | 条件转移指令   | `JLS 389`上一行的比较结果，左边小于右边则执行跳到0x0185地址处(十进制389转换成十六进制0x0185) |
+
+## 伪寄存器
 
 go汇编中定义了4个伪寄存器:
 
-* FP(Frame pointer): arguments and locals(局部数据、输入参数、返回值)
+* FP(Frame pointer): arguments and locals(函数本地变量、输入参数、返回值)
 * PC(Program counter): jumps and branches
 * SB(Static base pointer):global symbols
-* SP(Stack pointer): top of stack
+* SP(Stack pointer): top of stack(栈帧空间的基址,跳过BP)
 
-所有用户定义的符号都被定义为相对于FP和SB的偏移。
+伪FP、伪SP、硬件SP的大致分布如下图:
 
-SB伪寄存器可以认为是内存的起始地址，因此`foo(SB)`是`foo`在内存中的地址。这种方式用于命名全局函数和数据。在名字后边天加`<>`,如`foo<>(SB)`表示该符号仅在当前文件中可用。在名字后添加偏移，如`foo+4(SB)`表示foo的位置在相对于起始位置4个字节后的位置。
+![](./asset/asm_layout2.jpg)
 
-FP伪寄存器是一个虚拟帧指针，指向函数参数的位置。编译器维护一个虚拟帧指针，并将堆栈上的参数表示为该伪寄存器的偏移量。`0(FP)`表示函数的第一个参数， 8(FP)第二个参数(64位机器)。但是，当以这种方式引用函数参数时，必须在开头放置一个名称，如`first_arg+0(FP)`和`second_arg+8(FP)`。汇编程序强制执行此约定。名称没有特殊要求，通俗易懂即可。FP是一个伪寄存器，不是指的硬件寄存器FP。
+>被调用者的参数与返回值是分配在调用者栈帧空间中的
+
+SB伪寄存器可以认为是内存的起始地址，因此`foo(SB)`是`foo`在内存中的地址。这种方式用于命名全局函数和数据。在名字后边添加`<>`,如`foo<>(SB)`表示该符号仅在当前文件中可用。在名字后添加偏移，如`foo+4(SB)`表示foo的位置在相对于起始位置4个字节后的位置。
+
+FP伪寄存器是一个虚拟的指针，指向函数第一个参数的位置。`0(FP)`表示函数的第一个参数，8(FP)第二个参数(64位机器)。但是，当以这种方式引用函数参数时，必须在开头放置一个名称，如`first_arg+0(FP)`和`second_arg+8(FP)`。汇编程序强制执行此约定。名称没有特殊要求，符合语境即可。
 
 在32位系统上，64位值的低32位和高32位是通过在名称后添加一个_lo或_hi后缀来区分的，如arg_lo+0(FP)或arg_hi+4(FP)。
 
-SP伪寄存器是一个虚拟栈的指针，用于局部变量和为函数调用准备的参数。它指向本地栈帧的顶部，因此引用应该在范围内使用负偏移量[-framesize，0)：x-8(SP)，y-4(SP)，依此类推。
+SP伪寄存器指向函数栈帧的栈底(跳过BP)，可以用于访问本地变量。由于变量是向低地址访问增长，因此引用应该使用负偏移量[-framesize，0)：x-8(SP)，y-16(SP)，依此类推。
 
-需要在SP添加一个名称前缀来区分是伪寄存器SP还是硬件寄存器SP。x-8(SP)和-8(SP)是不同的内存地址：前一个是相对于虚拟栈的位寄存器指针，后者则是相对于硬件寄存器SP的。
+需要在SP添加一个名称前缀来区分是伪寄存器SP还是硬件寄存器SP。x-8(SP)和-8(SP)是不同的内存地址：前一个是伪存器指针，后者则是硬件寄存器SP。
 
 SP和PC是物理寄存器的别名，在Go汇编中使用SP和PC，需要带一个符号，像上边的FP一样。如果要访问硬件寄存器需要使用真实的R开头的名字。在ARM架构下，硬件SP和PC可以使用R13和R15访问。
 
-分支和直接跳转地址使用的是相对于PC的偏移或跳转到指定label:
-
-```go
-label:
-	MOVW $0, R1
-	JMP label
-```
-
-每个label仅仅在所定义的函数内部可见，因此同一个文件中的不同函数中使用相同的lable是允许的。直接跳转和调用指令可以使用name(SB)，但不能用带偏移的方式，如name+4(SB)。
-
 指令、寄存器和汇编程序指令总是大写。
 
-在Go对象文件和二进制文件中，符号的全名是包路径，后跟句点和符号名：`fmt.Printf`或`math/rand.Int`。因为汇编器的解析器将句点(.)和斜杠(/)视为标点符号，所以这些字符串不能直接用作标识符名称。汇编程序允许在标识符中使用中间点字符U+00B7(·)和除法斜线U+2215(∕)，并将它们重写为句点和斜线。在汇编源文件中，上述符号需要写成`fmt·Printf`和 `math∕rand·Int`。使用`go tool compile -S`输出汇编代码时，显示的是替换后的句点和斜线符号。
+在Go源文件中，符号的全名是包路径，后跟句点和符号名：`fmt.Printf`或`math/rand.Int`。因为汇编器的解析器将句点(.)和斜杠(/)视为标点符号，所以这些字符串不能直接用作标识符名称。汇编程序允许在标识符中使用中间点字符U+00B7(·)和除法斜线U+2215(∕)，并将它们重写为句点和斜线。在汇编源文件中，上述符号需要写成`fmt·Printf`和 `math∕rand·Int`。使用`go tool compile -S`输出汇编代码时，显示的是替换后的句点和斜线符号。
 
 大多数手写的汇编原文件中的符号名中不包含完整的路径，因为链接器在以句点开头的任何名称的开头插入当前对象文件的包路径：在math/rand包实现中的汇编源文件中，包中的Int函数可以通过`.Int`方式被引用。此约定避免了在包的源代码中硬编码包的导入路径，从而使代码从一个位置移动到另一个位置更加容易。
 
-## 指令(Directives)
+## 指令格式
 
 汇编程序使用各种指令将文本和数据绑定到符号名。例如，这里有一个简单的完整函数定义。`Text`指令声明符号runtime·profileloop和函数体后面的指令。Text部分的最后一个指令必须是某种跳转，通常是一个RET(伪)指令。符号后边，就是参数标识、帧大小和一个常量。
 
@@ -118,9 +155,11 @@ TEXT runtime·profileloop(SB),NOSPLIT,$8
 	RET
 ```
 
-通常，在帧大小后边跟着一个参数大小，用减号`-`分割。帧大小$24-8表示函数有一个24字节的帧，并用8字节的参数调用，这些参数位于调用方的帧上。如果`Text`中没有指定`NOSPLIT`，参数大小必须提供。`go vet`会检查。
+![](./asset/asm_func.png)
 
-符号名使用中间点来分隔，并指定与静态基址伪寄存器SB的偏移量。将调用go源码下的runtime包中的profileloop函数。
+通常，在栈帧大小后边跟着一个参数大小，用减号`-`分割。帧大小$24-8表示函数栈帧24字节，参数和返回值大小8字节。如果`Text`中没有指定`NOSPLIT`，参数大小必须提供。`go vet`会检查。
+
+符号名使用中间点来分隔，将调用go源码下的runtime包中的profileloop函数。
 
 全局数据符号由一系列`DATA`指令和一个`GLOBL指令`定义。每个`DATA`指令初始化相应内存的一部分。未显式初始化的内存为零。`DATA`指令的一般形式:
 
@@ -164,21 +203,15 @@ GLOBL指令可以有一个或两个参数。如果有两个参数，则第一个
 
 	用于TEXT指令，函数是一个闭包，需要使用上下文寄存器
 
-## Runtime Coordination 
+## CPU架构相关
 
-为了gc正常进行，runtime必须知道全局数据中指针的位置。Go编译器在编译源码时记录这些信息，但是汇编必须显示定义出来。
-
-NOPTR标记的数据符号被认为不包含指针数据。带有RODATA标志的数据符号被分配到只读存储器中，因此被视为隐式标记NOPTR。总大小小于指针的数据符号也被视为隐式标记的NOPTR。无法在汇编源文件中定义包含指针的符号，这样的符号必须在Go源文件中定义。
-
-每个函数都需要写明在参数、结果和栈帧中使用到的指针位置。汇编中函数的名称不能包含包的名称，如syscall包中的函数Sysall，在汇编中应使用`·Syscall`的方式调用，而不是`syscall·Syscall`的方式。更复杂的场景，需要使用`funcdata.h`头文件中的伪指令进行处理。
-
-## Architecture-specific details
-
-g的运行时指针通过MMU中未使用的寄存器实现。如果源位于runtime包中，并且包含一个特殊的头`go-tls.h`，则为汇编程序定义一个依赖于操作系统的宏get-tls：
+runtime包中有一个特殊的文件头引用`go-tls.h`，用来为汇编程序定义一个依赖于具体操作系统实现的宏`get-tls`：
 
 `#include "go_tls.h"`
 
-在runtime中，get_tls宏用于获取g的指针，g的结构中也包含m的指针。`go_asm.h`头文件中包含g结构中每个元素的偏移位置。下面是一个，使用CX加载g和m的例子:
+get_tls宏用于获取g的地址。
+
+`go_asm.h`头文件中包含g结构中每个元素的偏移的宏定义。下面是一个，使用CX加载g和m的例子:
 
 ```
 #include "go_tls.h"
@@ -189,127 +222,137 @@ MOVL	g(CX), AX     // Move g into AX.
 MOVL	g_m(AX), BX   // Move g.m into BX.
 ```
 
-go编译器为了方便汇编中访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件，该文件包含全部struct的每个字段偏移的宏定义。
+>go编译器为了方便汇编中访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件。
 
-寻址方式:
+## 函数栈帧布局
 
-* (DI)(BX*2):DI+BX\*2
-* 64(DI)(BX*2):DI+BX\*2+64
+栈帧(Frame):函数调用时在栈上开辟的用于传递参数、记录函数返回地址、保存寄存器信息等的一段内存空间。
 
+栈帧所占字节=本地变量+被调用函数返回值+被调用函数参数
 
-
-go编译器和链接器会保留寄存器，用作保存当前g。
-
----
-函数在go汇编中的表示形式
-
-![](./asset/asm_func.png)
-
-如果函数属于当前包中包名可以省略，如果函数汇编中有`NOSPLIT`标志省略输入参数与返回值展会用的大小。$0-16说明函数栈大小为0字节，函数栈计算包括:局部变量、当前函数调用其它函数时传参数所需的空间，16表示当前函数的参数和返回值总共16字节。函数的
-
-
+我们还以上边使用的例子举例来分析下该函数的栈布局
 ```
-func zzz(a, b, c int) [3]int{
-	var d [3]int
-	d[0], d[1], d[2] = a, b, c
-	return d
+func zzz(a int) [1]int{
+  var d [1]int
+  d[0]= a
+  return d
 }
 
-高地址位
-          ┼───────────┼
-          │  返回值g   │
-          ┼───────────┼
-          │  返回值f   │
-          ┼───────────┼
-          │  返回值e   │
-          ┼───────────┼
-          │  参数之c   │
-          ┼───────────┼
-          │  参数之b   │
-          ┼───────────┼
-          │  参数之a   │
-          ┼───────────┼    <-- 伪FP
-          │ 函数返回地址│
-          ┼───────────┼
-          │ CALLER BP │
-          ┼───────────┼    <-- 伪SP
-          │  变量之[2] │    <-- d0-8(SP)
-          ┼───────────┼
-          │  变量之[1] │    <-- d1-16(SP)
-          ┼───────────┼
-          │  变量之[0] │    <-- d2-24(SP)
-          ┼───────────┼    <-- 硬件SP
-低地址位
-
-#include "textflag.h"
-
-TEXT ·zzz(SB),NOSPLIT,$24-48    // $24值栈空间24byte，- 后面的48跟上面的含义一样，
-                                // 在编译后，栈空间会被+8用于存储BP寄存器，这步骤由编译器自动添加
-   MOVQ    $0, d-24(SP)         // 初始化d[0]
-   MOVQ    $0, d-16(SP)         // 初始化d[1]
-   MOVQ    $0, d-8(SP)          // 初始化d[2]
-   MOVQ    a+0(FP), AX          // d[0] = a
-   MOVQ    AX, d-24(SP)         //
-   MOVQ    b+8(FP), AX          // d[1] = b
-   MOVQ    AX, d-16(SP)         //
-   MOVQ    c+16(FP), AX         // d[2] = c
-   MOVQ    AX, d-8(SP)          //
-   MOVQ    d-24(SP), AX         // d[0] = return [0]
-   MOVQ    AX, r+24(FP)         //
-   MOVQ    d-16(SP), AX         // d[1] = return [1]
-   MOVQ    AX, r+32(FP)         //
-   MOVQ    d-8(SP), AX          // d[2] = return [2]
-   MOVQ    AX, r+40(FP)         //
-   RET                          // return
+func main() {
+  m1:=1
+  m2:=2
+  zzz(m1+m2)
+}
 ```
 
-go编译器会将函数栈空间自动加8，用于存储BP寄存器，跳过这8字节后才是函数栈上局部变量的内存。函数返回地址使用的是调用者的栈空间，CALLER BP由编辑器“透明”插入，因此，不算在当前函数的栈空间内
+**先看下先看下main函数的栈帧与参数大小：$40-0**
+
+main栈帧空间(40字节)=BP(8字节)+本地变量m1(8字节)+本地变量m2(8字节)+zzz返回值(8字节)+zzz参数(8字节)
+
+参数大小(0字节)
+
+**再看下zzz函数栈帧与参数大小:$16-16**
+
+zzz栈帧空间(16字节)=BP(8字节)+本地变量d(8字节)
+
+参数大小(16字节)=一个返回值(8字节)+一个参数(8字节)
+
+>call指令调用函数后，会将函数返回时所需地址压入栈中，硬件寄存器SP地址向下移动一位
+
+>go语言中被调用函数所需的参数与返回值所需空间是分配在调用者的栈帧空间中的；按照:本地变量->返回值->参数，的顺序由高地址空间向低地址空间分配，如果有多个返回值、参数的话，按照从右往左的顺序依次分配。
+
+>BP计算器:一般在函数中用来保存进入函数时的sp的栈顶基址
+
+根据以上分析，可以大致画出如下栈布局:
+
+![](./asset/asm_layout1.jpg)
 
 
+我们知道go汇编中有常用的伪寄存器SP和FP,但是它们的地址如何，与硬件SP的关系如何，现在还不太清楚。根据官方文档上的定义，上图中我们尝试标出了当前情况下的伪寄存器的位置，现在我们来验证下。
+
+首先定义一个获取寄存器位置的函数:
+
+>手写汇编中栈帧空间无需考虑BP寄存器所占空间
+
+需要分两种情况，函数栈帧空间大于0和等于0的情况，因为栈帧空间为0时编译器也不会再插入BP寄存器所需的空间了,这样就会影响伪寄存器与硬件SP的相对位置。
+
+由于上边的zzz函数有一个8字节的本地变量，所以这里我们也使用8字节的栈帧空间
+```
+// func output(int) (int, int, int)
+TEXT ·output(SB), $8-32
+    LEAQ 0(SP), DX // 硬件SP地址
+    MOVQ DX, ret3+24(FP) // 第三个返回值
+    LEAQ a+0(SP), BX //  伪SP的地址
+    MOVQ BX, ret2+16(FP) // 第二个返回值
+    LEAQ arg1+0(FP), AX
+    MOVQ AX, ret1+8(FP)  // 第一个返回值
+    RET
+
+TEXT ·output2(SB), $0-32
+    LEAQ 0(SP), DX // 硬件寄存器SP
+    MOVQ DX, ret3+24(FP) // 第三个返回值
+    LEAQ perhapsArg1+0(SP), BX // 当前函数栈大小 > 0，所以 FP 在 SP 的上方 16 字节处
+    MOVQ BX, ret2+16(FP) // 第二个返回值
+    LEAQ arg1+0(FP), AX
+    MOVQ AX, ret1+8(FP)  // 第一个返回值
+    RET    
+```
+
+我们在使用go代码调用这个汇编函数；
+
+```
+// 栈帧空间8字节
+func output(int) (int, int, int) // 汇编函数声明
+
+// 栈帧空间0字节
+func output2(int) (int, int, int)
+
+func main() {
+	fmt.Println("---------栈帧空间8字节-----------")
+	a, b, c := output(1)
+	fmt.Println("伪FP地址:",a)
+	fmt.Println("伪SP地址:",b)
+	fmt.Println("硬件SP地址:",c)
+
+	fmt.Println("---------栈帧空间0字节-----------")
+
+	a2, b2, c2 := output2(2)
+	fmt.Println("伪FP地址:",a2)
+	fmt.Println("伪SP地址:",b2)
+	fmt.Println("硬件SP地址:",c2)
+}
+```
+
+得到的结果如下:
+
+```
+---------栈帧空间8字节-----------
+伪FP地址: 824634240528
+伪SP地址: 824634240512
+硬件SP地址: 824634240504
+---------栈帧空间0字节-----------
+伪FP地址: 824634240528
+伪SP地址: 824634240520
+硬件SP地址: 824634240520
+```
+
+分析以上结果可以得知:
+
+**当被调用的函数栈帧大于0(有本地变量)时:**
+
+伪SP地址=硬件SP + 本地变量(8字节)
+
+伪FP地址=伪SP+16字节(BP,函数返回地址)
+
+**当被调用的函数栈帧等于0(无本地变量)时:**
+
+伪SP地址=硬件SP
+
+伪FP地址=伪SP+8字节(函数返回地址)
 
 ## 参考:
 
 1. [golang 汇编](https://lrita.github.io/2017/12/12/golang-asm/)
 2. [go asm](https://golang.org/doc/asm)
-	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+3. [go编译工具的使用之汇编](https://yuchanns.org/posts/2020/01/31/golang-assembly/)
+4. [plan9 assembly 完全解析](https://github.com/cch123/golang-notes/blob/master/assembly.md)
