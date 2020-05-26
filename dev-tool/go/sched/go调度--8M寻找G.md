@@ -241,3 +241,7 @@ stop:
 	goto top
 }
 ```
+
+M寻找G的大致过程如下:
+
+![](./asset/sched-8-1.png)

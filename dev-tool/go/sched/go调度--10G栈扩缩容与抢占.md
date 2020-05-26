@@ -177,6 +177,8 @@ func newstack() {
 
 在上篇[sysmon](./go调度--9sysmon.md)一文中，我们知道对一直运行超过10ms的g会设置`preempt`抢占标记，同时也会将g.stackguard0标记为一个非常大的值(stackPreempt)，这些标记是在栈扩容中会使用到，从而进行实际的抢占操作。
 
+> 现在的抢占逻辑只是添加一个标记，用于强制触发栈扩容。因为栈扩容逻辑在基本每个函数中都会插入，这么做应该是出于对现有代码的修改最小的考虑???
+
 实际是否进行抢占需要同时满足以下条件:
 * m.locks==0 即
 * M上未禁止抢占功能
@@ -238,6 +240,8 @@ func newstack() {
 	gogo(&gp.sched)
 }
 ```
+
+> 如果一个goroutine运行了很久，但是它并没有调用另一个函数，则它不会被抢占。当然，一个运行很久却不调用函数的代码并不是多数情况。
  
 
  ## 缩容
@@ -306,9 +310,23 @@ func shrinkstack(gp *g) {
 
 ## 栈中常用参数
 
-* _StackSystem
-* _StackMin
-* _StackBig
-* _StackGuard
-* _StackSmall
-* _StackLimit
+这些参数编译器会使用，在编译时会确定要不要进行栈扩容，如果需要会插入函数序言。
+
+>以下参数的值是基于linux-amd64
+
+* _StackSystem：0字节，根据操作系统不同保留的额外的栈空间
+
+* _StackMin：2kb，栈空间的最小值
+
+* _StackBig：4096字节，函数栈帧超过此阈值是，将执行堆栈拆分检查的额外指令
+
+* _StackGuard： 880*sys.StackGuardMultiplier + _StackSystem，880字节，栈溢出门槛，SP位置低于这个门槛会进行栈扩容
+
+* _StackSmall：128字节，用于小函数优化，允许函数可以突破StackGuard防线后，再向下占用最多StackSmall个字节。
+* _StackLimit：_StackGuard - _StackSystem - _StackSmall，752字节，栈低位低于StackSmall剩余的那部分空间，这段空间表示了一个NOSPLIT拒绝栈溢出检测的函数最多还能使用的栈空间
+
+* stackPreempt：大于所有SP的一个值，等于0xFFFFFADE，是一个抢占调度相关的参数，赋值给g.stackguard0，用于进行栈扩容，在栈扩容过程中会进行抢占调度检查
+
+* stackFork：准备执行fork，赋值给g.stackguard0
+
+![](./asset/sched-10-3.png)
