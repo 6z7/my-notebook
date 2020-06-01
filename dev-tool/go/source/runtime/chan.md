@@ -1,6 +1,6 @@
 # channel源码分析
 
-channel是go中常用的一种类型，用于在不同协程之前同步信息。其源码位于[runtime/chan.go](https://github.com/6z7/go/blob/master/src/runtime/chan.go)文件中。
+channel是go中常用的一种类型，用于在不同协程之前同步信息。其源码位于[runtime/chan.go](https://github.com/6z7/go/blob/release-branch.go1.13-study/src/runtime/chan.go)文件中。
 
 先通过一个简单的使用chan例子,查看生成的汇编代码,来看看channel的实际使用过程。
 ```go
