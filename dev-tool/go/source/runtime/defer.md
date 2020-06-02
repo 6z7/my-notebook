@@ -1,45 +1,8 @@
 # defer源码分析
 
-defer是go中用于声明在函数结束时必然执行的回调函数。下面我们通过一个例子来具体看下defer的实现。
+defer是go中用于声明在函数结束时必然执行的回调函数。
 
-```go
- func main() {
-        defer func() {
-            fmt.Println(123)
-        }()
-    }
-```
-通过`go tool compile -N -S -l demo.go`获取对应的汇编
-```
-    0x001d 00029 (demo2.go:6)	MOVL	$0, ""..autotmp_1+8(SP)
-	//defer定义的方法
-	0x0025 00037 (demo2.go:6)	LEAQ	"".main.func1·f(SB), AX	
-	0x002c 00044 (demo2.go:6)	MOVQ	AX, ""..autotmp_1+32(SP)
-	0x0031 00049 (demo2.go:6)	LEAQ	""..autotmp_1+8(SP), AX
-	0x0036 00054 (demo2.go:6)	MOVQ	AX, (SP)
-	0x003a 00058 (demo2.go:6)	CALL	runtime.deferprocStack(SB)
-	//判断返回值 0跳转到85，非0跳转到69
-	0x003f 00063 (demo2.go:6)	TESTL	AX, AX
-	0x0041 00065 (demo2.go:6)	JNE	85
-	0x0043 00067 (demo2.go:6)	JMP	69
-	0x0045 00069 (demo2.go:9)	XCHGL	AX, AX
-	//执行定义的defer方法
-	0x0046 00070 (demo2.go:9)	CALL	runtime.deferreturn(SB)
-	0x004b 00075 (demo2.go:9)	MOVQ	64(SP), BP
-	0x0050 00080 (demo2.go:9)	ADDQ	$72, SP
-	0x0054 00084 (demo2.go:9)	RET
-	0x0055 00085 (demo2.go:6)	XCHGL	AX, AX
-	0x0056 00086 (demo2.go:6)	CALL	runtime.deferreturn(SB)
-	0x005b 00091 (demo2.go:6)	MOVQ	64(SP), BP
-	0x0060 00096 (demo2.go:6)	ADDQ	$72, SP
-	0x0064 00100 (demo2.go:6)	RET
-	0x0065 00101 (demo2.go:6)	NOP
-	0x0065 00101 (demo2.go:5)	CALL	runtime.morestack_noctxt(SB)
-```
-  
-  通过上边的汇编可以看到，关键部分是 **runtime.deferprocStack**与**runtime.deferreturn**,我们也发现runtime.deferreturn出现了多次(根据不用的返回值跳转到不用的位置),下面我们来具体来看下每个方法的实现。
-
-  >defer的源码在runtime/panic.go中(通过dlv调试,下断点b runtime.deferprocStack就可以找到)
+defer的源码在runtime/panic.go中(通过dlv调试,下断点b runtime.deferprocStack就可以找到)
 
 对于defer，编译时逃逸分析后决定是分配在堆上还是栈上。不管是分配在哪里，都会使用到`_defer`数据结构用于在运行时保存定义的defer函数: 
 
@@ -64,15 +27,99 @@ type _defer struct {
 }
  ```
 
- 创建的defer会保存到`g._defer`上，多个defer会创建构成一个FIFO链表。
+下面分别看下defer在栈或堆上的分配的情况
 
-![](../image/defer1.png)
+## defer分配在栈上
 
- 下面我们来看下defer在栈和堆上分别是如何分配的
+首先举一个分配在栈的例子，通过反汇编看下defer在栈上是如何分配的。
+
+```go
+func main() {
+	a, b := 1, 2
+	defer func(a, b int) {
+		fmt.Println(a, b)
+	}(a, b)
+}
+```
+通过`go tool compile -N -S -l demo.go`获取对应的汇编
+```
+"".main STEXT size=149 args=0x0 locals=0x68
+	0x0000 00000 (demo.go:5)	TEXT	"".main(SB), ABIInternal, $104-0
+	0x0000 00000 (demo.go:5)	MOVQ	(TLS), CX
+	0x0009 00009 (demo.go:5)	CMPQ	SP, 16(CX)
+	0x000d 00013 (demo.go:5)	JLS	139
+	0x000f 00015 (demo.go:5)	SUBQ	$104, SP
+	0x0013 00019 (demo.go:5)	MOVQ	BP, 96(SP)
+	0x0018 00024 (demo.go:5)	LEAQ	96(SP), BP
+	0x001d 00029 (demo.go:6)	MOVQ	$1, "".a+24(SP)
+	0x0026 00038 (demo.go:6)	MOVQ	$2, "".b+16(SP)
+	0x002f 00047 (demo.go:7)	MOVL	$16, ""..autotmp_3+32(SP)
+	0x0037 00055 (demo.go:7)	PCDATA	$0, $1
+	0x0037 00055 (demo.go:7)	LEAQ	"".main.func1·f(SB), AX
+	0x003e 00062 (demo.go:7)	PCDATA	$0, $0
+	0x003e 00062 (demo.go:7)	MOVQ	AX, ""..autotmp_3+56(SP)
+	0x0043 00067 (demo.go:7)	MOVQ	"".a+24(SP), AX
+	0x0048 00072 (demo.go:7)	MOVQ	AX, ""..autotmp_3+80(SP)
+	0x004d 00077 (demo.go:7)	MOVQ	"".b+16(SP), AX
+	0x0052 00082 (demo.go:7)	MOVQ	AX, ""..autotmp_3+88(SP)
+	0x0057 00087 (demo.go:7)	PCDATA	$0, $1
+	0x0057 00087 (demo.go:7)	LEAQ	""..autotmp_3+32(SP), AX
+	0x005c 00092 (demo.go:7)	PCDATA	$0, $0
+	0x005c 00092 (demo.go:7)	MOVQ	AX, (SP)
+	0x0060 00096 (demo.go:7)	CALL	runtime.deferprocStack(SB)
+	0x0065 00101 (demo.go:7)	TESTL	AX, AX
+	0x0067 00103 (demo.go:7)	JNE	123
+	0x0069 00105 (demo.go:7)	JMP	107
+	//On x86 the NOP instruction is XCHG AX, AX
+	0x006b 00107 (demo.go:10)	XCHGL	AX, AX
+	0x006c 00108 (demo.go:10)	CALL	runtime.deferreturn(SB)
+	0x0071 00113 (demo.go:10)	MOVQ	96(SP), BP
+	0x0076 00118 (demo.go:10)	ADDQ	$104, SP
+	0x007a 00122 (demo.go:10)	RET
+	0x007b 00123 (demo.go:7)	XCHGL	AX, AX
+	0x007c 00124 (demo.go:7)	CALL	runtime.deferreturn(SB)
+	0x0081 00129 (demo.go:7)	MOVQ	96(SP), BP
+	0x0086 00134 (demo.go:7)	ADDQ	$104, SP
+	0x008a 00138 (demo.go:7)	RET
+	0x008b 00139 (demo.go:7)	NOP
+	0x008b 00139 (demo.go:5)	PCDATA	$1, $-1
+	0x008b 00139 (demo.go:5)	PCDATA	$0, $-1
+	0x008b 00139 (demo.go:5)	CALL	runtime.morestack_noctxt(SB)
+	0x0090 00144 (demo.go:5)	JMP	0
+"".main.func1 STEXT size=260 args=0x10 locals=0x88
+	0x0000 00000 (demo.go:7)	TEXT	"".main.func1(SB), ABIInternal, $136-16
+	0x0000 00000 (demo.go:7)	MOVQ	(TLS), CX
+	0x0009 00009 (demo.go:7)	LEAQ	-8(SP), AX
+	0x000e 00014 (demo.go:7)	CMPQ	AX, 16(CX)
+	0x0012 00018 (demo.go:7)	JLS	250
+	0x0018 00024 (demo.go:7)	SUBQ	$136, SP
+	0x001f 00031 (demo.go:7)	MOVQ	BP, 128(SP)
+	0x0027 00039 (demo.go:7)	LEAQ	128(SP), BP
+	0x002f 00047 (demo.go:8)	MOVQ	"".a+144(SP), AX
+	0x0037 00055 (demo.go:8)	MOVQ	AX, (SP)
+	0x003b 00059 (demo.go:8)	CALL	runtime.convT64(SB)
+	0x0040 00064 (demo.go:8)	PCDATA	$0, $1
+	0x0040 00064 (demo.go:8)	MOVQ	8(SP), AX
+	0x0045 00069 (demo.go:8)	PCDATA	$0, $0
+	......
+	0x00fa 00250 (demo.go:7)	CALL	runtime.morestack_noctxt(SB)
+	0x00ff 00255 (demo.go:7)	JMP	0
+
+```
+  
+  通过上边的汇编可以看到，关键部分是 **runtime.deferprocStack**与**runtime.deferreturn**。defer在栈上的分配如下图:
+
+
+
+
+
+
+
 
  ## runtime.deferprocStack
 
-defer分配在栈上
+根据上述的汇编代码
+
 ```go    
 // 将新的defer加入LIFO队列    
 //go:nosplit
@@ -104,6 +151,10 @@ TEXT runtime·return0(SB), NOSPLIT, $0
 	MOVL	$0, AX
 	RET
 ```
+ 创建的defer会保存到`g._defer`上，多个defer会创建构成一个FIFO链表。
+
+![](../image/defer1.png)
+
 
 ## runtime.deferproc
 
