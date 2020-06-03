@@ -31,7 +31,35 @@ type _defer struct {
 
 ## defer分配在栈上
 
-首先举一个分配在栈的例子，通过反汇编看下defer在栈上是如何分配的。
+由于defer在栈上分配，所以在编译时已经确定了defer在栈上的分布情况。下面这段代码就是编译时构造的defer结构的[方法](https://github.com/6z7/go/blob/03250054f8512d35b10f17d3c886dbc4b1ad43c6/src/cmd/compile/internal/gc/ssa.go#L3836)，可以看到在_defer后边还有一个参数数组:
+
+```go
+func deferstruct(stksize int64) *types.Type {
+     ......
+    argtype := types.NewArray(types.Types[TUINT8], stksize)
+	argtype.Width = stksize
+	argtype.Align = 1
+	// These fields must match the ones in runtime/runtime2.go:_defer and
+	// cmd/compile/internal/gc/ssa.go:(*state).call.
+	fields := []*types.Field{
+		makefield("siz", types.Types[TUINT32]),
+		makefield("started", types.Types[TBOOL]),
+		makefield("heap", types.Types[TBOOL]),
+		makefield("sp", types.Types[TUINTPTR]),
+		makefield("pc", types.Types[TUINTPTR]),
+		// Note: the types here don't really matter. Defer structures
+		// are always scanned explicitly during stack copying and GC,
+		// so we make them uintptr type even though they are real pointers.
+		makefield("fn", types.Types[TUINTPTR]),
+		makefield("_panic", types.Types[TUINTPTR]),
+		makefield("link", types.Types[TUINTPTR]),
+		makefield("args", argtype),
+	}
+......
+}
+```
+
+举一个分配在栈的例子，通过反汇编看下defer在栈上是如何分配的。
 
 ```go
 func main() {
@@ -61,10 +89,8 @@ func main() {
 	0x0043 00067 (demo.go:7)	MOVQ	"".a+24(SP), AX
 	0x0048 00072 (demo.go:7)	MOVQ	AX, ""..autotmp_3+80(SP)
 	0x004d 00077 (demo.go:7)	MOVQ	"".b+16(SP), AX
-	0x0052 00082 (demo.go:7)	MOVQ	AX, ""..autotmp_3+88(SP)
-	0x0057 00087 (demo.go:7)	PCDATA	$0, $1
+	0x0052 00082 (demo.go:7)	MOVQ	AX, ""..autotmp_3+88(SP)	
 	0x0057 00087 (demo.go:7)	LEAQ	""..autotmp_3+32(SP), AX
-	0x005c 00092 (demo.go:7)	PCDATA	$0, $0
 	0x005c 00092 (demo.go:7)	MOVQ	AX, (SP)
 	0x0060 00096 (demo.go:7)	CALL	runtime.deferprocStack(SB)
 	0x0065 00101 (demo.go:7)	TESTL	AX, AX
@@ -107,7 +133,7 @@ func main() {
 
 ```
   
-  通过上边的汇编可以看到，关键部分是 **runtime.deferprocStack**与**runtime.deferreturn**。defer在栈上的分配如下图:
+通过上边的汇编可以看到，关键部分是 **runtime.deferprocStack**与**runtime.deferreturn**。defer在栈上的分配如下图:
 
 
 
@@ -284,27 +310,43 @@ func deferreturn(arg0 uintptr) {
     d.fn = nil
     gp._defer = d.link
     freedefer(d)
-    //通过汇编实现调用fn并循环调用deferreturn直至结束
+    // 通过汇编实现调用fn并循环调用deferreturn直至结束
+    // &arg0的地址就是defer的地址
     jmpdefer(fn, uintptr(unsafe.Pointer(&arg0)))
 }
 ```
 jmpdefer的汇编实现
 
 ```
-    // func jmpdefer(fv *funcval, argp uintptr)
-    // argp is a caller SP.
-    // called from deferreturn.
-    // 1. pop the caller
-    // 2. sub 5 bytes from the callers return
-    // 3. jmp to the argument
-    TEXT runtime·jmpdefer(SB), NOSPLIT, $0-16
-        MOVQ	fv+0(FP), DX	// fn defer 的函数的地址
-        MOVQ	argp+8(FP), BX	// caller sp
-        LEAQ	-8(BX), SP	// caller sp after CALL
-        MOVQ	-8(SP), BP	// restore BP as if deferreturn returned (harmless if framepointers not in use)
-        SUBQ	$5, (SP)	// return to CALL again  call 指令长度为 5，因此通过将 ret addr 减 5，能够使 deferreturn 自动被反复调用
-        MOVQ	0(DX), BX
-        JMP	BX	// but first run the deferred function  执行函数fn
+// func jmpdefer(fv *funcval, argp uintptr)
+// argp is a caller SP.
+// called from deferreturn.
+// 1. pop the caller
+// 2. sub 5 bytes from the callers return
+// 3. jmp to the argument
+TEXT runtime·jmpdefer(SB), NOSPLIT, $0-16
+    // defer的函数的地址
+    MOVQ	fv+0(FP), DX	
+    // 参数argp的地址，即调用者的SP地址
+    MOVQ	argp+8(FP), BX
+    // SP-8,即 调用者执行call runtime.deferreturn时压入栈的下一条指令的地址 
+    LEAQ	-8(BX), SP	// caller sp after CALL
+    // 恢复调用者的BP
+    MOVQ	-8(SP), BP	
+    // SP-5 指令恢复到call runtime.deferreturn位置
+    SUBQ	$5, (SP)	// return to CALL again
+    MOVQ	0(DX), BX
+    // 执行函数fn
+    // fn执行完成后，返回到deferreturn,再返回到调用者，由于调用者的返回地址被修改为call runtime.deferreturn的地址，则循环执行call runtime.deferreturn
+    JMP	BX	 
 ```
+runtime.deferreturn的上下文，CALL	runtime.deferreturn与下一条指令的地址相差5(00129-00124)
+```
+0x007c 00124 (demo.go:7)	CALL	runtime.deferreturn(SB)
+0x0081 00129 (demo.go:7)	MOVQ	96(SP), BP
+0x0086 00134 (demo.go:7)	ADDQ	$104, SP
+0x008a 00138 (demo.go:7)	RET
+```
+
 
 
