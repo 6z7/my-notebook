@@ -71,83 +71,84 @@ func main() {
 ```
 通过`go tool compile -N -S -l demo.go`获取对应的汇编
 ```
-"".main STEXT size=149 args=0x0 locals=0x68
-	0x0000 00000 (demo.go:5)	TEXT	"".main(SB), ABIInternal, $104-0
-	0x0000 00000 (demo.go:5)	MOVQ	(TLS), CX
-	0x0009 00009 (demo.go:5)	CMPQ	SP, 16(CX)
-	0x000d 00013 (demo.go:5)	JLS	139
-	0x000f 00015 (demo.go:5)	SUBQ	$104, SP
-	0x0013 00019 (demo.go:5)	MOVQ	BP, 96(SP)
-	0x0018 00024 (demo.go:5)	LEAQ	96(SP), BP
-	0x001d 00029 (demo.go:6)	MOVQ	$1, "".a+24(SP)
-	0x0026 00038 (demo.go:6)	MOVQ	$2, "".b+16(SP)
-	0x002f 00047 (demo.go:7)	MOVL	$16, ""..autotmp_3+32(SP)
-	0x0037 00055 (demo.go:7)	PCDATA	$0, $1
-	0x0037 00055 (demo.go:7)	LEAQ	"".main.func1·f(SB), AX
-	0x003e 00062 (demo.go:7)	PCDATA	$0, $0
-	0x003e 00062 (demo.go:7)	MOVQ	AX, ""..autotmp_3+56(SP)
-	0x0043 00067 (demo.go:7)	MOVQ	"".a+24(SP), AX
-	0x0048 00072 (demo.go:7)	MOVQ	AX, ""..autotmp_3+80(SP)
-	0x004d 00077 (demo.go:7)	MOVQ	"".b+16(SP), AX
-	0x0052 00082 (demo.go:7)	MOVQ	AX, ""..autotmp_3+88(SP)	
-	0x0057 00087 (demo.go:7)	LEAQ	""..autotmp_3+32(SP), AX
-	0x005c 00092 (demo.go:7)	MOVQ	AX, (SP)
-	0x0060 00096 (demo.go:7)	CALL	runtime.deferprocStack(SB)
-	0x0065 00101 (demo.go:7)	TESTL	AX, AX
-	0x0067 00103 (demo.go:7)	JNE	123
-	0x0069 00105 (demo.go:7)	JMP	107
-	//On x86 the NOP instruction is XCHG AX, AX
-	0x006b 00107 (demo.go:10)	XCHGL	AX, AX
-	0x006c 00108 (demo.go:10)	CALL	runtime.deferreturn(SB)
-	0x0071 00113 (demo.go:10)	MOVQ	96(SP), BP
-	0x0076 00118 (demo.go:10)	ADDQ	$104, SP
-	0x007a 00122 (demo.go:10)	RET
-	0x007b 00123 (demo.go:7)	XCHGL	AX, AX
-	0x007c 00124 (demo.go:7)	CALL	runtime.deferreturn(SB)
-	0x0081 00129 (demo.go:7)	MOVQ	96(SP), BP
-	0x0086 00134 (demo.go:7)	ADDQ	$104, SP
-	0x008a 00138 (demo.go:7)	RET
-	0x008b 00139 (demo.go:7)	NOP
-	0x008b 00139 (demo.go:5)	PCDATA	$1, $-1
-	0x008b 00139 (demo.go:5)	PCDATA	$0, $-1
-	0x008b 00139 (demo.go:5)	CALL	runtime.morestack_noctxt(SB)
-	0x0090 00144 (demo.go:5)	JMP	0
-"".main.func1 STEXT size=260 args=0x10 locals=0x88
-	0x0000 00000 (demo.go:7)	TEXT	"".main.func1(SB), ABIInternal, $136-16
+ "".main STEXT size=149 args=0x0 locals=0x68
+	0x0000 00000 (demo.go:7)	TEXT	"".main(SB), ABIInternal, $104-0
 	0x0000 00000 (demo.go:7)	MOVQ	(TLS), CX
-	0x0009 00009 (demo.go:7)	LEAQ	-8(SP), AX
-	0x000e 00014 (demo.go:7)	CMPQ	AX, 16(CX)
-	0x0012 00018 (demo.go:7)	JLS	250
-	0x0018 00024 (demo.go:7)	SUBQ	$136, SP
-	0x001f 00031 (demo.go:7)	MOVQ	BP, 128(SP)
-	0x0027 00039 (demo.go:7)	LEAQ	128(SP), BP
-	0x002f 00047 (demo.go:8)	MOVQ	"".a+144(SP), AX
-	0x0037 00055 (demo.go:8)	MOVQ	AX, (SP)
-	0x003b 00059 (demo.go:8)	CALL	runtime.convT64(SB)
-	0x0040 00064 (demo.go:8)	PCDATA	$0, $1
-	0x0040 00064 (demo.go:8)	MOVQ	8(SP), AX
-	0x0045 00069 (demo.go:8)	PCDATA	$0, $0
-	......
-	0x00fa 00250 (demo.go:7)	CALL	runtime.morestack_noctxt(SB)
-	0x00ff 00255 (demo.go:7)	JMP	0
+	0x0009 00009 (demo.go:7)	CMPQ	SP, 16(CX)
+	0x000d 00013 (demo.go:7)	JLS	139
+	0x000f 00015 (demo.go:7)	SUBQ	$104, SP
+	0x0013 00019 (demo.go:7)	MOVQ	BP, 96(SP)
+	0x0018 00024 (demo.go:7)	LEAQ	96(SP), BP	 
+	0x001d 00029 (demo.go:8)	MOVQ	$1, "".a+24(SP)
+	0x0026 00038 (demo.go:8)	MOVQ	$2, "".b+16(SP)
+	0x002f 00047 (demo.go:9)	MOVL	$16, ""..autotmp_3+32(SP)	 
+	0x0037 00055 (demo.go:9)	LEAQ	"".main.func1·f(SB), AX	 
+	0x003e 00062 (demo.go:9)	MOVQ	AX, ""..autotmp_3+56(SP)
+	0x0043 00067 (demo.go:9)	MOVQ	"".a+24(SP), AX
+	0x0048 00072 (demo.go:9)	MOVQ	AX, ""..autotmp_3+80(SP)
+	0x004d 00077 (demo.go:9)	MOVQ	"".b+16(SP), AX
+	0x0052 00082 (demo.go:9)	MOVQ	AX, ""..autotmp_3+88(SP)	 
+	0x0057 00087 (demo.go:9)	LEAQ	""..autotmp_3+32(SP), AX	 
+	0x005c 00092 (demo.go:9)	MOVQ	AX, (SP)
+	0x0060 00096 (demo.go:9)	CALL	runtime.deferprocStack(SB)
+	0x0065 00101 (demo.go:9)	TESTL	AX, AX
+	0x0067 00103 (demo.go:9)	JNE	123
+	0x0069 00105 (demo.go:9)	JMP	107
+	0x006b 00107 (demo.go:12)	XCHGL	AX, AX
+	0x006c 00108 (demo.go:12)	CALL	runtime.deferreturn(SB)
+	0x0071 00113 (demo.go:12)	MOVQ	96(SP), BP
+	0x0076 00118 (demo.go:12)	ADDQ	$104, SP
+	0x007a 00122 (demo.go:12)	RET
+	0x007b 00123 (demo.go:9)	XCHGL	AX, AX
+	0x007c 00124 (demo.go:9)	CALL	runtime.deferreturn(SB)
+	0x0081 00129 (demo.go:9)	MOVQ	96(SP), BP
+	0x0086 00134 (demo.go:9)	ADDQ	$104, SP
+	0x008a 00138 (demo.go:9)	RET
+	0x008b 00139 (demo.go:9)	NOP	 
+	0x008b 00139 (demo.go:7)	CALL	runtime.morestack_noctxt(SB)
+	0x0090 00144 (demo.go:7)	JMP	0
+	 
+"".main.func1 STEXT size=94 args=0x10 locals=0x10
+	0x0000 00000 (demo.go:9)	TEXT	"".main.func1(SB), ABIInternal, $16-16
+	0x0000 00000 (demo.go:9)	MOVQ	(TLS), CX
+	0x0009 00009 (demo.go:9)	CMPQ	SP, 16(CX)
+	0x000d 00013 (demo.go:9)	JLS	87
+	0x000f 00015 (demo.go:9)	SUBQ	$16, SP
+	0x0013 00019 (demo.go:9)	MOVQ	BP, 8(SP)
+	0x0018 00024 (demo.go:9)	LEAQ	8(SP), BP	 
+	0x001d 00029 (demo.go:10)	CALL	runtime.printlock(SB)
+	0x0022 00034 (demo.go:10)	MOVQ	"".a+24(SP), AX
+	0x0027 00039 (demo.go:10)	MOVQ	AX, (SP)
+	0x002b 00043 (demo.go:10)	CALL	runtime.printint(SB)
+	0x0030 00048 (demo.go:10)	CALL	runtime.printsp(SB)
+	0x0035 00053 (demo.go:10)	MOVQ	"".b+32(SP), AX
+	0x003a 00058 (demo.go:10)	MOVQ	AX, (SP)
+	0x003e 00062 (demo.go:10)	CALL	runtime.printint(SB)
+	0x0043 00067 (demo.go:10)	CALL	runtime.printnl(SB)
+	0x0048 00072 (demo.go:10)	CALL	runtime.printunlock(SB)
+	0x004d 00077 (demo.go:11)	MOVQ	8(SP), BP
+	0x0052 00082 (demo.go:11)	ADDQ	$16, SP
+	0x0056 00086 (demo.go:11)	RET
+	0x0057 00087 (demo.go:11)	NOP	 
+	0x0057 00087 (demo.go:9)	CALL	runtime.morestack_noctxt(SB)
+	0x005c 00092 (demo.go:9)	JMP	0 
 
 ```
   
-通过上边的汇编可以看到，关键部分是 **runtime.deferprocStack**与**runtime.deferreturn**。defer在栈上的分配如下图:
+通过上边的汇编，可以看出在栈上分配了一段空间来表示defer,大致画图main方法上栈的布局：
+
+![](../image/defer2.png)
 
 
+**runtime.deferprocStack**
 
+用于将栈上新分配的defer保存到当前g._defer上，所有的defer构成一个FIFO队列。
 
-
-
-
-
- ## runtime.deferprocStack
-
-根据上述的汇编代码
+![](../image/defer1.png)
 
 ```go    
-// 将新的defer加入LIFO队列    
+// 将新的defer加入LIFO队列   
+// 第一个参数指向栈上的defer地址 
 //go:nosplit
 func deferprocStack(d *_defer) {
     gp := getg()
@@ -171,20 +172,198 @@ func deferprocStack(d *_defer) {
     
 } 
 ```
-return0的汇编实现
+***return0的汇编实现***
 ```
 TEXT runtime·return0(SB), NOSPLIT, $0
 	MOVL	$0, AX
 	RET
 ```
- 创建的defer会保存到`g._defer`上，多个defer会创建构成一个FIFO链表。
 
-![](../image/defer1.png)
+**runtime.deferreturn**
 
+循环执行当前g上所有的defer。既然是循环调用，就要有退出条件，满足以下条件退出循环:
 
-## runtime.deferproc
+* d==nil 即g上的defer执行完了
 
-defer分配在堆上
+* d.sp!=sp  非同一个SP下的直接返回，这种情况发生在函数嵌套调用时,如 f1()->f2()->f3()，每个函数中都有defer,每次函数退出时只执行当前函数的defer
+
+根据参数的大小确定如何复制参数：
+
+1. 如果参数或返回值大小为0，不做处理
+2. 如果参数或返回值大小为一个指针大小直接复制
+3. 反之则通过内存复制 
+
+```go
+// arg0:第一个参数地址，即调用者SP
+func deferreturn(arg0 uintptr) {
+    gp := getg()
+    d := gp._defer
+    if d == nil {
+        return
+    }
+    sp := getcallersp()
+    if d.sp != sp {
+        return
+    }
+
+    switch d.siz {
+    case 0:
+        // Do nothing.
+    case sys.PtrSize:
+        *(*uintptr)(unsafe.Pointer(&arg0)) = *(*uintptr)(deferArgs(d))
+    default:
+        memmove(unsafe.Pointer(&arg0), deferArgs(d), uintptr(d.siz))
+    }
+    fn := d.fn
+    d.fn = nil
+    gp._defer = d.link
+    freedefer(d)
+    // 通过汇编实现调用fn并循环调用deferreturn直至结束
+    // &arg0的地址就是defer的地址
+    jmpdefer(fn, uintptr(unsafe.Pointer(&arg0)))
+}
+
+// 计算defer参数的位置
+//go:nosplit
+func deferArgs(d *_defer) unsafe.Pointer {
+	if d.siz == 0 {
+		// Avoid pointer past the defer allocation.
+		return nil
+	}
+	return add(unsafe.Pointer(d), unsafe.Sizeof(*d))
+}
+```
+
+***jmpdefer的汇编实现***
+
+该汇编会回复SP、BP为调用者对应的值，并将调用者调用deferreturn时要入栈的下一条指令替换`call runtime.deferreturn`指令，这样就可以实现循环调用deferreturn了。
+```
+TEXT runtime·jmpdefer(SB), NOSPLIT, $0-16
+    // defer的函数的地址
+    MOVQ	fv+0(FP), DX	
+    // 参数argp的地址，即调用者的SP地址
+    MOVQ	argp+8(FP), BX
+    // SP-8,即 调用者执行call runtime.deferreturn时压入栈的下一条指令的地址 
+    LEAQ	-8(BX), SP	// caller sp after CALL
+    // 恢复调用者的BP
+    MOVQ	-8(SP), BP	
+    // SP-5 指令恢复到call runtime.deferreturn位置
+    SUBQ	$5, (SP)	// return to CALL again
+    MOVQ	0(DX), BX
+    // 执行函数fn
+    // fn执行完成后，返回到deferreturn,再返回到调用者，由于调用者的返回地址被修改为call runtime.deferreturn的地址，则循环执行call runtime.deferreturn
+    JMP	BX	 
+```
+runtime.deferreturn的上下文，CALL	runtime.deferreturn与下一条指令的地址相差5(00129-00124)
+```
+0x007c 00124 (demo.go:7)	CALL	runtime.deferreturn(SB)
+0x0081 00129 (demo.go:7)	MOVQ	96(SP), BP
+0x0086 00134 (demo.go:7)	ADDQ	$104, SP
+0x008a 00138 (demo.go:7)	RET
+```
+
+调用者与deferreturn栈的关系:
+
+![](../image/defer3.png)
+
+## defer分配在堆上
+
+先看一个分配在堆上的例子:
+```go
+func main() {
+    for i := 0; i < 5; i++ {
+        defer func(a,b int)  {
+            println(a,b)
+        }(1,2)
+    }
+}
+
+```
+对应的汇编：
+```
+"".main STEXT size=161 args=0x0 locals=0x30
+	0x0000 00000 (demo.go:7)	TEXT	"".main(SB), ABIInternal, $48-0
+	0x0000 00000 (demo.go:7)	MOVQ	(TLS), CX
+	0x0009 00009 (demo.go:7)	CMPQ	SP, 16(CX)
+	0x000d 00013 (demo.go:7)	JLS	151
+	0x0013 00019 (demo.go:7)	SUBQ	$48, SP
+	0x0017 00023 (demo.go:7)	MOVQ	BP, 40(SP)
+	0x001c 00028 (demo.go:7)	LEAQ	40(SP), BP	
+	0x0021 00033 (demo.go:8)	MOVQ	$0, "".i+32(SP)
+	0x002a 00042 (demo.go:8)	JMP	44
+	0x002c 00044 (demo.go:8)	CMPQ	"".i+32(SP), $5
+	0x0032 00050 (demo.go:8)	JLT	54
+	0x0034 00052 (demo.go:8)	JMP	135
+    // 参数大小  16字节
+	0x0036 00054 (demo.go:9)	MOVL	$16, (SP)	
+	0x003d 00061 (demo.go:9)	LEAQ	"".main.func1·f(SB), AX
+    // 函数地址	
+	0x0044 00068 (demo.go:9)	MOVQ	AX, 8(SP)
+    // 函数参数
+	0x0049 00073 (demo.go:9)	MOVQ	$1, 16(SP)
+    // 函数参数
+	0x0052 00082 (demo.go:9)	MOVQ	$2, 24(SP)
+	0x005b 00091 (demo.go:9)	CALL	runtime.deferproc(SB)
+	0x0060 00096 (demo.go:11)	TESTL	AX, AX
+	0x0062 00098 (demo.go:11)	JNE	119
+	0x0064 00100 (demo.go:11)	JMP	102	 
+	0x0066 00102 (demo.go:8)	JMP	104
+	0x0068 00104 (demo.go:8)	PCDATA	$0, $0
+	0x0068 00104 (demo.go:8)	PCDATA	$1, $0
+	0x0068 00104 (demo.go:8)	MOVQ	"".i+32(SP), AX
+	0x006d 00109 (demo.go:8)	INCQ	AX
+	0x0070 00112 (demo.go:8)	MOVQ	AX, "".i+32(SP)
+	0x0075 00117 (demo.go:8)	JMP	44
+	0x0077 00119 (demo.go:9)	XCHGL	AX, AX
+	0x0078 00120 (demo.go:9)	CALL	runtime.deferreturn(SB)
+	0x007d 00125 (demo.go:11)	MOVQ	40(SP), BP
+	0x0082 00130 (demo.go:11)	ADDQ	$48, SP
+	0x0086 00134 (demo.go:11)	RET
+	0x0087 00135 (demo.go:13)	XCHGL	AX, AX
+	0x0088 00136 (demo.go:13)	CALL	runtime.deferreturn(SB)
+	0x008d 00141 (demo.go:13)	MOVQ	40(SP), BP
+	0x0092 00146 (demo.go:13)	ADDQ	$48, SP
+	0x0096 00150 (demo.go:13)	RET
+	0x0097 00151 (demo.go:13)	NOP
+	0x0097 00151 (demo.go:7)	PCDATA	$1, $-1
+	0x0097 00151 (demo.go:7)	PCDATA	$0, $-1
+	0x0097 00151 (demo.go:7)	CALL	runtime.morestack_noctxt(SB)
+	0x009c 00156 (demo.go:7)	JMP	0
+	 
+"".main.func1 STEXT size=94 args=0x10 locals=0x10
+	0x0000 00000 (demo.go:9)	TEXT	"".main.func1(SB), ABIInternal, $16-16
+	0x0000 00000 (demo.go:9)	MOVQ	(TLS), CX
+	0x0009 00009 (demo.go:9)	CMPQ	SP, 16(CX)
+	0x000d 00013 (demo.go:9)	JLS	87
+	0x000f 00015 (demo.go:9)	SUBQ	$16, SP
+	0x0013 00019 (demo.go:9)	MOVQ	BP, 8(SP)
+	0x0018 00024 (demo.go:9)	LEAQ	8(SP), BP	 
+	0x001d 00029 (demo.go:10)	CALL	runtime.printlock(SB)
+	0x0022 00034 (demo.go:10)	MOVQ	"".a+24(SP), AX
+	0x0027 00039 (demo.go:10)	MOVQ	AX, (SP)
+	0x002b 00043 (demo.go:10)	CALL	runtime.printint(SB)
+	0x0030 00048 (demo.go:10)	CALL	runtime.printsp(SB)
+	0x0035 00053 (demo.go:10)	MOVQ	"".b+32(SP), AX
+	0x003a 00058 (demo.go:10)	MOVQ	AX, (SP)
+	0x003e 00062 (demo.go:10)	CALL	runtime.printint(SB)
+	0x0043 00067 (demo.go:10)	CALL	runtime.printnl(SB)
+	0x0048 00072 (demo.go:10)	CALL	runtime.printunlock(SB)
+	0x004d 00077 (demo.go:11)	MOVQ	8(SP), BP
+	0x0052 00082 (demo.go:11)	ADDQ	$16, SP
+	0x0056 00086 (demo.go:11)	RET
+	0x0057 00087 (demo.go:11)	NOP
+	0x0057 00087 (demo.go:9)	PCDATA	$1, $-1
+	0x0057 00087 (demo.go:9)	PCDATA	$0, $-1
+	0x0057 00087 (demo.go:9)	CALL	runtime.morestack_noctxt(SB)
+	0x005c 00092 (demo.go:9)	JMP	0
+```
+
+**runtime.deferproc**
+
+1. 在堆上创建defer对象
+2. 将栈上的函数参数复制到堆上defer的后边
+
+![](../image/defer4.png)
 
 ```go
 //go:nosplit
@@ -194,6 +373,7 @@ func deferproc(siz int32, fn *funcval) {
         throw("defer on system stack")
     }     
     sp := getcallersp()
+    // 参数地址
     argp := uintptr(unsafe.Pointer(&fn)) + unsafe.Sizeof(fn)
     callerpc := getcallerpc()
 
@@ -217,10 +397,19 @@ func deferproc(siz int32, fn *funcval) {
    
     return0()   
 }
+```
 
+***newdefer***
+
+在堆上创建defer时，如果函数参数大小小于5字节则优先从缓冲中获取，反之则直接从堆上创建。
+
+从缓冲中获取defer时，优先从当前P上的deferpool中获取，如果没有则从全局复制一半(最多)到本地缓冲中，然后再从本地缓冲中获取，如果仍然还没有则直接在堆上创建。
+
+```go
 //创建一个defer
 func newdefer(siz int32) *_defer {
 var d *_defer
+// 参数大小
 sc := deferclass(uintptr(siz))
 gp := getg()
 //deferpool    [5][]*_defer
@@ -255,16 +444,7 @@ if d == nil {
     systemstack(func() {
         total := roundupsize(totaldefersize(uintptr(siz)))
         d = (*_defer)(mallocgc(total, deferType, true))
-    })
-    if debugCachedWork {
-        // Duplicate the tail below so if there's a
-        // crash in checkPut we can tell if d was just
-        // allocated or came from the pool.
-        d.siz = siz
-        d.link = gp._defer
-        gp._defer = d
-        return d
-    }
+    })    
 }
 d.siz = siz
 //分配在堆上
@@ -276,77 +456,62 @@ return d
 }
 ```
 
-## runtime.deferreturn
+**freedefer**
 
-执行defer定义的方法
-
+defer函数执行完成后，空闲的defer会保存到缓冲中。优先先放入本地缓冲中，如果本地缓冲已满则先将本地缓冲移动一半到全局defer缓冲中在保存到本地。
 ```go
-func deferreturn(arg0 uintptr) {
-    gp := getg()
-    d := gp._defer
-    if d == nil {
-        return
-    }
-    sp := getcallersp()
-    if d.sp != sp {
-        return
-    }
+//go:nosplit
+func freedefer(d *_defer) {
+	if d._panic != nil {
+		freedeferpanic()
+	}
+	if d.fn != nil {
+		freedeferfn()
+	}
+	if !d.heap {
+		return
+	}
+	sc := deferclass(uintptr(d.siz))
+	if sc >= uintptr(len(p{}.deferpool)) {
+		return
+	}
+	pp := getg().m.p.ptr()
+	if len(pp.deferpool[sc]) == cap(pp.deferpool[sc]) {	 
+		systemstack(func() {
+			var first, last *_defer
+			for len(pp.deferpool[sc]) > cap(pp.deferpool[sc])/2 {
+				n := len(pp.deferpool[sc])
+				d := pp.deferpool[sc][n-1]
+				pp.deferpool[sc][n-1] = nil
+				pp.deferpool[sc] = pp.deferpool[sc][:n-1]
+				if first == nil {
+					first = d
+				} else {
+					last.link = d
+				}
+				last = d
+			}
+			lock(&sched.deferlock)
+			last.link = sched.deferpool[sc]
+			sched.deferpool[sc] = first
+			unlock(&sched.deferlock)
+		})
+	}
 
-    // Moving arguments around.
-    //
-    // Everything called after this point must be recursively
-    // nosplit because the garbage collector won't know the form
-    // of the arguments until the jmpdefer can flip the PC over to
-    // fn.
-    switch d.siz {
-    case 0:
-        // Do nothing.
-    case sys.PtrSize:
-        *(*uintptr)(unsafe.Pointer(&arg0)) = *(*uintptr)(deferArgs(d))
-    default:
-        memmove(unsafe.Pointer(&arg0), deferArgs(d), uintptr(d.siz))
-    }
-    fn := d.fn
-    d.fn = nil
-    gp._defer = d.link
-    freedefer(d)
-    // 通过汇编实现调用fn并循环调用deferreturn直至结束
-    // &arg0的地址就是defer的地址
-    jmpdefer(fn, uintptr(unsafe.Pointer(&arg0)))
+	// These lines used to be simply `*d = _defer{}` but that
+	// started causing a nosplit stack overflow via typedmemmove.
+	d.siz = 0
+	d.started = false
+	d.sp = 0
+	d.pc = 0
+	// d._panic and d.fn must be nil already.
+	// If not, we would have called freedeferpanic or freedeferfn above,
+	// both of which throw.
+	d.link = nil
+
+	pp.deferpool[sc] = append(pp.deferpool[sc], d)
 }
 ```
-jmpdefer的汇编实现
+defer缓冲
 
-```
-// func jmpdefer(fv *funcval, argp uintptr)
-// argp is a caller SP.
-// called from deferreturn.
-// 1. pop the caller
-// 2. sub 5 bytes from the callers return
-// 3. jmp to the argument
-TEXT runtime·jmpdefer(SB), NOSPLIT, $0-16
-    // defer的函数的地址
-    MOVQ	fv+0(FP), DX	
-    // 参数argp的地址，即调用者的SP地址
-    MOVQ	argp+8(FP), BX
-    // SP-8,即 调用者执行call runtime.deferreturn时压入栈的下一条指令的地址 
-    LEAQ	-8(BX), SP	// caller sp after CALL
-    // 恢复调用者的BP
-    MOVQ	-8(SP), BP	
-    // SP-5 指令恢复到call runtime.deferreturn位置
-    SUBQ	$5, (SP)	// return to CALL again
-    MOVQ	0(DX), BX
-    // 执行函数fn
-    // fn执行完成后，返回到deferreturn,再返回到调用者，由于调用者的返回地址被修改为call runtime.deferreturn的地址，则循环执行call runtime.deferreturn
-    JMP	BX	 
-```
-runtime.deferreturn的上下文，CALL	runtime.deferreturn与下一条指令的地址相差5(00129-00124)
-```
-0x007c 00124 (demo.go:7)	CALL	runtime.deferreturn(SB)
-0x0081 00129 (demo.go:7)	MOVQ	96(SP), BP
-0x0086 00134 (demo.go:7)	ADDQ	$104, SP
-0x008a 00138 (demo.go:7)	RET
-```
-
-
-
+![](../image/defer5.png)
