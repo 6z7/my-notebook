@@ -180,4 +180,10 @@ func arenaIndex(p uintptr) arenaIdx {
 }
 ```
 
+## 总结
+
+遍历arenaHints选择合适的位置创建arena,如果从hints中没有找到合适的则从OS中申请arena。通过	`arenaIndex`方法将内存地址转为对应的arena数组索引，arena数组的长度为`1<<22`,由于其每个元素的大小是64MB，所以数组覆盖的范围为`(1<<22)*64MB=256TB`。分配的起始地址是在初始化的时选择的arenaHit的起始位置`uintptr(0)<<40 | uintptrMask&(0x00c0<<32)`(824633720832)。数组的的类型是一个heapArena。arena数组将会被保存到heap.arenas这个二维数组中作为二维，arenaIndex()的结果将会用来计算在二维数组中的位置。
+ 
+
+![](./asset/create_arena.png)
 
