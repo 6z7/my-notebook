@@ -182,7 +182,7 @@ func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
 1. 根据对象大小计算需要分配的内存页数，并进行对齐
 2. 将对象对应的size class(大对象是0)转为span class
 3. 从堆上为span分配内存
-4. 
+4. 初始化span和bitmap
 
 ```go
 func largeAlloc(size uintptr, needzero bool, noscan bool) *mspan {
@@ -222,74 +222,8 @@ func makeSpanClass(sizeclass uint8, noscan bool) spanClass {
 	return spanClass(sizeclass<<1) | spanClass(bool2int(noscan))
 }
 ```
-## 堆上分配内存
 
-1. 防止堆的过度增长，先尝试清理至少N页内存
-2. 执行分配流程
-   - a. 遍历堆上空闲span构成的数，看有页数足够的span
-   - b. 如果未找到，则从os上分配内存来扩容堆
+## 小对象分配流程
 
-```go
-// npage:需要分配的页数
-// spanclss:对应的spanclss索引，如果是大对象则是0
-// large:是否是大对象(>32kb)
-//go:systemstack
-func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
-    _g_ := getg()
-    
-    // 防止堆的过度增长，在分配n个页面前，需要先清理和回收至少N页
-	if h.sweepdone == 0 {
-		h.reclaim(npage)
-	}
 
-	lock(&h.lock)
-	// transfer stats from cache to global
-	// 将mchache上的统计数据转到全局统计中
-	memstats.heap_scan += uint64(_g_.m.mcache.local_scan)
-	_g_.m.mcache.local_scan = 0
-	memstats.tinyallocs += uint64(_g_.m.mcache.local_tinyallocs)
-	_g_.m.mcache.local_tinyallocs = 0
-
-	// 从heap上分配内存
-	s := h.allocSpanLocked(npage, &memstats.heap_inuse)
-	if s != nil {
-		// Record span info, because gc needs to be
-		// able to map interior pointer to containing span.
-		atomic.Store(&s.sweepgen, h.sweepgen)
-		h.sweepSpans[h.sweepgen/2%2].push(s) // Add to swept in-use list.
-		s.state = mSpanInUse
-		s.allocCount = 0
-		s.spanclass = spanclass
-		if sizeclass := spanclass.sizeclass(); sizeclass == 0 {
-			s.elemsize = s.npages << _PageShift
-			s.divShift = 0
-			s.divMul = 0
-			s.divShift2 = 0
-			s.baseMask = 0
-		} else {
-			s.elemsize = uintptr(class_to_size[sizeclass])
-			m := &class_to_divmagic[sizeclass]
-			s.divShift = m.shift
-			s.divMul = m.mul
-			s.divShift2 = m.shift2
-			s.baseMask = m.baseMask
-		}
-
-		// Mark in-use span in arena page bitmap.
-		arena, pageIdx, pageMask := pageIndexOf(s.base())
-		arena.pageInUse[pageIdx] |= pageMask
-
-		// update stats, sweep lists
-		h.pagesInUse += uint64(npage)
-		if large {
-			memstats.heap_objects++
-			mheap_.largealloc += uint64(s.elemsize)
-			mheap_.nlargealloc++
-			atomic.Xadd64(&memstats.heap_live, int64(npage<<_PageShift))
-		}
-	}
-	 .
-	unlock(&h.lock)
-	return s
-}
-```
+## 微小对象分配流程

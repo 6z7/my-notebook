@@ -1,6 +1,6 @@
 # go内存管理--初始化
 
-内存初始化[mallocinit](https://github.com/6z7/go/blob/release-branch.go1.13-study/src/runtime/proc.go#L567)是在调度初始化schedinit中触发的。主要完成:
+内存初始化[mallocinit](https://github.com/6z7/go/blob/release-branch.go1.13-study/src/runtime/proc.go#L569)是在调度初始化schedinit中触发的。主要完成:
 
 * 各种检查，如页大小是否对齐
 * heap初始化
@@ -45,10 +45,11 @@ func mallocinit() {
 					continue
 				}
 			default:
-				// uintptrMask&(0x00c0<<32)=1100000000000000000000000000000000000000(40位)
+				// uintptrMask&(0x00c0<<32)=10000...000(40位)
+				// 1100110011001100110011001100110011001100110011001100110011001
+				// &                    1100000000000000000000000000000000000000
+
 				// 0x7f= 1111111
-				// 1111111 | 1100000000000000000000000000000000000000
-				// 11111111100000000000000000000000000000000000000=140462610448384
 				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
 			}
 			hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
@@ -89,7 +90,9 @@ func (h *mheap) init() {
 
 ## 创建一个mcache对象
 
-mcache是go进行内存管理所需的对象，为了进行内存管理所创建的对象需要从os上进行获取，属于堆外内存。
+mcache是go进行内存管理所需的对象，为了进行内存管理所创建的对象需要从os上分配内存，这部分内存属于堆外内存。
+
+> 传统意义上的栈被 Go 的运行时霸占，不开放给用户态代码；而传统意义上的堆内存，又被 Go 运行时划分为了两个部分， 一个是 Go 运行时自身所需的堆内存，即堆外内存；另一部分则用于 Go 用户态代码所使用的堆内存，也叫做 Go 堆。 Go 堆负责了用户态对象的存放以及 goroutine 的执行栈。
 
 `allocmcache`使用对应的内存分配器从OS上分配合适的内存用于创建mcache。
 ```go
