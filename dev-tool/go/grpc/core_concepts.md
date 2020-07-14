@@ -61,3 +61,37 @@ gRpc允许你定义四种service方法
 
 **一元RPC(Unary RPC)**
 
+首先考虑最简单的RPC类型，client发送一个请求并返回一个响应。
+
+
+**服务端流式RPC(Server streaming RPC)**
+
+**Client streaming RPC**
+
+**Bidirectional streaming RPC**
+
+**截止/超时时间(Deadlines/Timeouts )
+
+&emsp; &nbsp;gRPC允许客户端指定在RPC因`DEADLINE_EXCEEDED`错误而终止RPC之前，它愿意等待RPC完成的时间。在服务器端，服务器可以查询某个特定的RPC是否超时，或者还有多少时间来完成RPC。
+
+&emsp; &nbsp;指定截止时间或超时是特定于语言的：有些语言使用超时时间(持续时间)，有些语言使用截止时间(固定时间点)，可能有也可能没有默认的截止时间。
+
+**RPC终止(RPC termination)**
+
+&emsp; &nbsp;在gRPC中，client和server都对调用成功与否做出独立和局部的判断，它们的结论可能不一致。这意味着，你可以在服务器端成功地完成RPC（“我已经发送了我所有的响应！”）但在客户端失败（“响应在我的截止日期之后到达！”）。服务器也有可能在客户端发送完所有请求之前决定完成。
+
+**取消RPC**
+
+&emsp; &nbsp;client和server可以随时取消RPC。取消操作会立即终止RPC，因此还未进行的操作将不会被执行。
+
+**元数据(Metadata)**
+
+&emsp; &nbsp;元数据是与特定RPC调用有关的，以键值对列表形式出现的信息(如，认证详细信息)。其中键是字符串，值通常是字符串，也可以是二进制数据。元数据对gRPC本身是不透明的，它允许客户端提供与调用服务器相关的信息，反之亦然。
+
+&emsp; &nbsp;对元数据的访问依赖于语言。
+
+**通道(Channels)**
+
+&emsp; &nbsp;gRPC通道提供到指定主机和端口上的gRPC服务器的连接。它在创建客户机stub时使用。客户端可以指定通道参数来修改gRPC的默认行为，例如打开或关闭消息压缩。通道有状态，包括已连接和空闲。
+
+&emsp; &nbsp;gRPC如何关闭通道取决于语言。有些语言还允许查询通道状态。
