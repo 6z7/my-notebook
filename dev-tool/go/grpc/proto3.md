@@ -1,6 +1,9 @@
 
 # proto3语法指南
 
+>原文:https://developers.google.com/protocol-buffers/docs/proto3
+
+
 ## 定义消息类型
 
 先看一个简单的例子。假设您想要定义一个搜索请求消息格式，其中每个搜索请求都有一个查询字符串、您感兴趣的特定结果页以及每页的结果数量。下面是对应的`.proto`文件:
@@ -532,46 +535,18 @@ Protocol Buffers还允许定义和使用自己的选项。这是一个大多数�
 
 要生成Java、Python、c++、Go、Ruby、Objective-C或c#代码，需要在.proto文件中定义的message类型,然后使用pb编译器.protoc文件。如果还没安装，需要先安装[pb编译器](https://developers.google.com/protocol-buffers/docs/downloads),然后按照README中的步骤进行操作。对于Go，还需要为编译器安装一个特殊的代码生成器[插件]。(https://github.com/golang/protobuf/)
   
-Protocol编译器的调用如下
+Protocol编译器的调用如下:
 
+`protoc --proto_path=_IMPORT_PATH_ --cpp_out=_DST_DIR_ --java_out=_DST_DIR_ --python_out=_DST_DIR_ --go_out=_DST_DIR_ --ruby_out=_DST_DIR_ --objc_out=_DST_DIR_ --csharp_out=_DST_DIR_ _path/to/file_.proto`
 
+* IMPORT_PATH：指定解析`import`指令时查找.proto文件的目录，如果省略则使用当前目录。如果需要指定多个搜索目录，需要指定--proto_path选项多次。-I=_IMPORT_PATH_是--proto_path的简写。
 
+* 可以指定多个输出指令
 
+  * --java_out 在指定的DST_DIR目录中生成Java代码
 
+  * --go_out  在指定的DST_DIR目录中生成Go代码
 
+  * --csharp_out 在指定的DST_DIR目录中生成C#代码
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-https://developers.google.com/protocol-buffers/docs/proto3
-
-
-
-
+* 必须提供一个或多个.proto文件作为输入,可以同时指定多个.proto文件。
