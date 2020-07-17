@@ -53,3 +53,24 @@ b. 阿里云上创建一个仓库，配置从github导入，并配置构建规�
 
 echo " find .|xargs grep v0.0.8"|sudo sh
 
+## 停止
+
+`minikube stop`
+
+## 清理本地状态
+
+如果您之前安装过 Minikube，并运行了：
+
+`minikube start`
+
+并且 minikube start 返回了一个错误：
+
+`machine does not exist`
+
+那么，你需要清理 minikube 的本地状态：
+
+`minikube delete`
+
+## 引用:
+
+[安装 Minikube](https://kubernetes.io/zh/docs/tasks/tools/install-minikube/)
