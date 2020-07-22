@@ -24,6 +24,54 @@
 ## 例子
 
 
+protobuf格式的服务配置:
 
+```
+{
+  // Use round_robin LB policy.
+  load_balancing_config: { round_robin: {} }
+  // This method config applies to method "foo/bar" and to all methods
+  // of service "baz".
+  method_config: {
+    name: {
+      service: "foo"
+      method: "bar"
+    }
+    name: {
+      service: "baz"
+    }
+    // Default timeout for matching methods.
+    timeout: {
+      seconds: 1
+      nanos: 1
+    }
+  }
+}
+```
 
+json格式的服务配置:
 
+```
+{
+  "loadBalancingConfig": [ { "round_robin": {} } ],
+  "methodConfig": [
+    {
+      "name": [
+        { "service": "foo", "method": "bar" },
+        { "service": "baz" }
+      ],
+      "timeout": "1.0000000001s"
+    }
+  ]
+}
+```
+
+## APIs
+
+服务配置被以下API：
+
+* In the resolver API, used by resolver plugins to return the service config to the gRPC client.
+
+* In the gRPC client API, where users can query the channel to obtain the service config associated with the channel (for debugging purposes).
+
+* In the gRPC client API, where users can set the service config explicitly. This can be used to set the config in unit tests. It can also be used to set the default config that will be used if the resolver plugin does not return a service config.
