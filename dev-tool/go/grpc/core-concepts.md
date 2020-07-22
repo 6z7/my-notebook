@@ -1,5 +1,7 @@
 # gRPC核心概念、架构和生命周期
 
+>原文：https://grpc.io/docs/what-is-grpc/core-concepts/
+
 > gRpc中的关键概念、架构概览和RPC生命周期的介绍
 
 ## 简介
