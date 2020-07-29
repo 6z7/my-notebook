@@ -1,3 +1,5 @@
+# 与etcd交互
+
 etcdctl是一个与etcd服务端交互的命令行工具。与etcd交互的api可以使用version 2和version 3，通过`ETCDCTL_API`环境变量指定。默认情况下，3.4版本的etcdctl使用V3版本的API，之前的版本默认使用V2 API。
 
 使用V2 API创建的key，不能被V3 API查询到。
@@ -99,8 +101,14 @@ bar
 $ etcdctl get --prefix --rev=1 foo # access the versions of keys at revision 1
 ```
 
-## 读取大于或等于指定键值的二进制值
+## 读取大于或等于指定键的二进制值的key
 ```
+//假设有如下key
+a = 123
+b = 456
+z = 789
+
+
 $ etcdctl get --from-key b
 b
 456
@@ -133,7 +141,7 @@ $ etcdctl del --from-key b
 2 # two keys are deleted
 ```
 
-## 监听键的变换
+## 监听key变换
 
 ```
 //输出监听的键的变换情况
@@ -186,7 +194,24 @@ zoo
 val
 ```
 
-## 监听键的历史变换
+## 监听key历史变换
+
+应用程序可能希望监听key的历史变化情况。如，一个应用希望收到key的所有变化，如何应用与etcd连接正常那么使用watch命令就已经足够，但是如果应用程序或etcd出现问题，那么在这期间可能会出现key的变化，应用程序并没有及时收到通知。为了保证能收到更新，应用程序必须能够监听key的变化历史。
+
+假设进行了如下操作:
+
+```
+$ etcdctl put foo bar         # revision = 2
+OK
+$ etcdctl put foo1 bar1       # revision = 3
+OK
+$ etcdctl put foo bar_new     # revision = 4
+OK
+$ etcdctl put foo1 bar1_new   # revision = 5
+OK
+```
+
+监听历史变换:
 
 ```
 //返回自版本2以后的所有修改
@@ -223,6 +248,8 @@ progress notify: 3
 
 ## 压缩key的历史记录
 
+etcd会保留修订版本，以便应用程序可以读取key的过去版本。但是，为了避免积累无数的历史记录，压缩过去的修订很重要。压缩后，etcd删除历史修订版，释放资源以供将来使用。压缩之前的数据将不能在被访问。
+
 ```
 //压缩修订版小于5的历史记录
 $ etcdctl compact 5
@@ -240,7 +267,7 @@ $ etcdctl get mykey -w=json
 
 ## 租约
 ```
-# grant a lease with 60 second TTL
+
 //创建一个60秒的租约，当租约到时后，所有与该租约绑定的key都会被删除
 $ etcdctl lease grant 60
 lease 32695410dcc0ca06 granted with TTL(60s)
