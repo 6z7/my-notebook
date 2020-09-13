@@ -16,3 +16,19 @@ windows平台换行符使用的是`\r\n`,linux使用的是`\n`。
 当设置了autocrlf为true后，如果文件中同时包含lf，在提交时会报错(混合反而不报错??)，需要将文件的换行符修改为crlf后才能保存。
 
  
+ ## 指定文件夹使用单独的配置
+
+ 在.gitconfig中配置
+
+ ```
+ [includeIf "gitdir:C:/senki/work/"]
+    path = ~/.gitconfig_work   #指定文件夹的项目使用单独的配置,gitdir大小写敏感，可以使用gitdir/i忽略大小写
+ ```
+
+ ## 全局ignore配置
+
+ ```
+ [core]	 
+	# 全局ignore配置
+	excludesfile = ~/.gitignore_global
+ ```
