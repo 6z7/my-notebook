@@ -28,5 +28,7 @@ curl -X PUT "localhost:9200/my-index-000001/_doc/1?pretty" -H 'Content-Type: app
 
 ## binary字段类型支持的参数
 
-* doc_values
+* doc_values:字段是否存以column-stride格式储到磁盘上，用于之后的排序、聚合和脚本，默认false
+
+* store: 是否字段值应该被存储，用于单独检索，默认fasle
 
