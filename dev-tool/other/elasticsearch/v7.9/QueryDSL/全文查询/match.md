@@ -28,7 +28,7 @@ operator：用于解释查询值中的文本的布尔逻辑，支持
  * OR ： "capital of Hungary"会被解释为 capital OR of OR Hungary
  * AND ： "capital of Hungary"会被解释为 capital AND of AND Hungary
 
-
+lenient：是否忽略查询时个格式错误，默认false。如，数字类型的字段，查询内容是字符串
 
 
 通过组合字段和查询参数，可以简化匹配查询语法。如:
