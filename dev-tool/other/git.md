@@ -32,3 +32,10 @@ windows平台换行符使用的是`\r\n`,linux使用的是`\n`。
 	# 全局ignore配置
 	excludesfile = ~/.gitignore_global
  ```
+
+
+ ## 查看文件匹配到的忽略规则
+
+ ```
+ git check-ignore -v  "C:\\senki\\work\\LastPackageCo.cs"
+ ```
