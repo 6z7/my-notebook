@@ -7,7 +7,7 @@
 
 ## KV数据库
 
-* [bolt](https://github.com/boltdb/bolt)
+* [bolt](https://github.com/etcd-io/bbolt)
 
 
 ## RPC
