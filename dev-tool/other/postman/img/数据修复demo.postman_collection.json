@@ -1,0 +1,129 @@
+{
+	"info": {
+		"_postman_id": "fb3f573e-cff5-450f-888e-634071f7f3a5",
+		"name": "数据修复demo",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "获取预付流水号",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"id": "f76d73ed-5014-4f3d-9142-d68708b74e2c",
+						"exec": [
+							"var jsonData=JSON.parse(responseBody);\r",
+							"\r",
+							"var code=jsonData.code\r",
+							"tests[\"返回code=0\"]= code==0\r",
+							"var payId=jsonData.value.prepayId\r",
+							" console.log(payId);\r",
+							"pm.environment.set(\"payId\", payId);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://192.168.60.80:17015/CustomerAsset/UnifiedOrder?customerSysNo={{sysNo}}&amount={{amount}}&assetType=4&source=11&orderSysNo=20200801",
+					"protocol": "http",
+					"host": [
+						"192",
+						"168",
+						"60",
+						"80"
+					],
+					"port": "17015",
+					"path": [
+						"CustomerAsset",
+						"UnifiedOrder"
+					],
+					"query": [
+						{
+							"key": "customerSysNo",
+							"value": "{{sysNo}}"
+						},
+						{
+							"key": "amount",
+							"value": "{{amount}}"
+						},
+						{
+							"key": "assetType",
+							"value": "4"
+						},
+						{
+							"key": "source",
+							"value": "11"
+						},
+						{
+							"key": "orderSysNo",
+							"value": "20200801"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "支付",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"id": "fd53639a-e0e4-453d-ae21-b8eca0d0eb2b",
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"id": "d0f95a96-0f5c-4f5a-8dc6-b30745239f4f",
+						"exec": [
+							"var jsonData=JSON.parse(responseBody);\r",
+							"\r",
+							"var value=jsonData.value\r",
+							"tests[\"支付成功\"]= value.success==true\r",
+							"console.log(value);\r",
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://192.168.60.80:17015/CustomerAsset/Pay?prepayId={{payId}}",
+					"protocol": "http",
+					"host": [
+						"192",
+						"168",
+						"60",
+						"80"
+					],
+					"port": "17015",
+					"path": [
+						"CustomerAsset",
+						"Pay"
+					],
+					"query": [
+						{
+							"key": "prepayId",
+							"value": "{{payId}}"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"protocolProfileBehavior": {}
+}
