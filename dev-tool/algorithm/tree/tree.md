@@ -62,3 +62,21 @@
 
 后序遍历(Post-Order Traversal): 左节点->右节点->根节点
 
+
+## 平衡树
+
+* AVL树
+
+* Red–black树
+
+* Treap树
+
+* Splay树
+
+* Weight balanced树
+
+* 2-3树
+
+* AA树
+
+* 替罪羊树
