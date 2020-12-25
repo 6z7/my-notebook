@@ -6,3 +6,12 @@
 |    od   |                    |                                       |
 |    dd   |                    |                                       |
 
+
+// 修改所有者和所属组
+chown  所有者.组 -R 目录或文件
+
+// 解压
+unzip xx.zip
+
+// 查看压缩内容
+unzip -v xx.zip
