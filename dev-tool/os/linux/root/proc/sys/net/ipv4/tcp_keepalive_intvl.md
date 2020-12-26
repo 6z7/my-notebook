@@ -1,0 +1,1 @@
+tcp_keepalive_intvl:75   即75秒后重发心跳包
