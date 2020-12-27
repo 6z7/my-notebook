@@ -1,3 +1,5 @@
+`/proc/sys/fs/file-max`
+
 file-max：所有进程允许打开的最大fd数量
 
 file-max一般为内存大小（KB）的10%

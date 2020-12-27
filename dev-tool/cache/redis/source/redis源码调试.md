@@ -5,7 +5,7 @@
 1. 安装gcc、gdb
 2. make noopt 
 
-#编译过程中关闭优化
+### 编译过程中关闭优化
 
 make noopt 
 
@@ -19,11 +19,11 @@ docker运行redis
 
 常用gdb命令
 
-#设置命令参数
+# 设置命令参数
 
 set args -h 127.0.0.1 -p 6379  
 
-#gdb tui 图形窗口
+# gdb tui 图形窗口
 layout
 
 #关闭layout
