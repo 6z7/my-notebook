@@ -19,6 +19,13 @@ kill所有nginx线程
 
 `taskkill /F /IM nginx.*`
 
+```
+netstat -ano|findstr 80
+
+tasklist|findstr pid
+
+taskkill /F /PID pid
+```
 
 子系统文件路径
 
