@@ -30,3 +30,18 @@ taskkill /F /PID pid
 子系统文件路径
 
 C:\Users\\{用户名}\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState\rootfs
+
+```
+// 永久用户环境变量
+setx env_name env_value
+
+setx "path" "D:\test;%path%"
+
+// 永久系统环境变量
+setx env_name env_value /m
+
+setx "Path" "%cd%;%path%" /m
+
+// 删除永久环境变量
+REG delete "HKCU\Environment" /F /V "abc"
+```
